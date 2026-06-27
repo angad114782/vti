@@ -1,0 +1,308 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  COMPANY_ADMIN
+  HR
+  SUPERVISOR
+  MANAGER
+  FINANCE
+  EMPLOYEE
+}
+
+enum PlanType {
+  BASIC
+  PRO
+  ENTERPRISE
+}
+
+enum CompanyStatus {
+  ACTIVE
+  TRIAL
+  EXPIRED
+  SUSPENDED
+}
+
+enum TicketStatus {
+  PENDING
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model User {
+  id             String          @id @default(cuid())
+  email          String          @unique
+  password       String
+  name           String
+  role           Role            @default(EMPLOYEE)
+  avatar         String?
+  isActive       Boolean         @default(true)
+  companyId      String?
+  company        Company?        @relation(fields: [companyId], references: [id])
+  refreshTokens  RefreshToken[]
+  activityLogs   ActivityLog[]
+  supportTickets SupportTicket[]
+  employee       Employee?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Company {
+  id             String          @id @default(cuid())
+  name           String
+  industry       String?
+  email          String?
+  phone          String?
+  address        String?
+  logo           String?
+  status         CompanyStatus   @default(TRIAL)
+  plan           PlanType        @default(BASIC)
+  maxUsers       Int             @default(100)
+  trialEndDate   DateTime?
+  planExpiry     DateTime?
+  users          User[]
+  subscription   Subscription?
+  modules        CompanyModule[]
+  activityLogs   ActivityLog[]
+  supportTickets SupportTicket[]
+  employees      Employee[]
+  leaveRequests  LeaveRequest[]
+  approvals      Approval[]
+  salaryStructures SalaryStructure[]
+  payslips       Payslip[]
+  documents      Document[]
+  expenses       Expense[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Plan {
+  id        String   @id @default(cuid())
+  name      String
+  type      PlanType @unique
+  price     Float
+  maxUsers  Int
+  features  String[]
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Subscription {
+  id           String   @id @default(cuid())
+  companyId    String   @unique
+  company      Company  @relation(fields: [companyId], references: [id])
+  plan         PlanType
+  billingCycle String   @default("Monthly")
+  amount       Float
+  startDate    DateTime @default(now())
+  endDate      DateTime
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Module {
+  id             String          @id @default(cuid())
+  name           String          @unique
+  description    String?
+  availableFor   PlanType[]
+  companyModules CompanyModule[]
+  createdAt      DateTime        @default(now())
+}
+
+model CompanyModule {
+  id        String  @id @default(cuid())
+  companyId String
+  moduleId  String
+  isEnabled Boolean @default(true)
+  company   Company @relation(fields: [companyId], references: [id])
+  module    Module  @relation(fields: [moduleId], references: [id])
+
+  @@unique([companyId, moduleId])
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+  action    String
+  module    String?
+  status    String   @default("Success")
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+}
+
+model RolePermission {
+  id         String   @id @default(cuid())
+  role       String
+  module     String
+  permission String
+  isGranted  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([role, permission])
+}
+
+model SupportTicket {
+  id          String         @id @default(cuid())
+  ticketNo    String         @unique
+  userId      String
+  user        User           @relation(fields: [userId], references: [id])
+  companyId   String?
+  company     Company?       @relation(fields: [companyId], references: [id])
+  category    String
+  subject     String
+  description String
+  priority    TicketPriority @default(MEDIUM)
+  status      TicketStatus   @default(PENDING)
+  attachment  String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model Employee {
+  id              String            @id @default(cuid())
+  employeeId      String            @unique
+  userId          String            @unique
+  user            User              @relation(fields: [userId], references: [id])
+  companyId       String
+  company         Company           @relation(fields: [companyId], references: [id])
+  department      String?
+  designation     String?
+  shiftType       String?
+  shiftTiming     String?
+  joiningDate     DateTime?
+  accountHolder   String?
+  bankName        String?
+  branchName      String?
+  annualCtc       Float?
+  employmentType  String            @default("Permanent")
+  status          String            @default("Active")
+  leaveRequests   LeaveRequest[]
+  approvals       Approval[]
+  salaryStructure SalaryStructure[]
+  payslips        Payslip[]
+  expenses        Expense[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model LeaveRequest {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id])
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id])
+  leaveType   String
+  startDate   DateTime
+  endDate     DateTime
+  days        Int
+  reason      String?
+  status      String   @default("Pending")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Approval {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id])
+  type       String
+  details    String
+  date       DateTime @default(now())
+  priority   String   @default("P1")
+  status     String   @default("Pending")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model SalaryStructure {
+  id           String   @id @default(cuid())
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id])
+  role         String
+  employmentType String @default("Permanent")
+  annualCtc    Float
+  lastRevised  DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Payslip {
+  id         String   @id @default(cuid())
+  payslipId  String   @unique
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id])
+  period     String
+  month      Int
+  year       Int
+  netPay     Float
+  status     String   @default("Processing")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Expense {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id])
+  category   String
+  amount     Float
+  description String?
+  receiptUrl String?
+  status     String   @default("Pending")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Document {
+  id         String   @id @default(cuid())
+  name       String
+  category   String
+  uploadedBy String
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id])
+  fileSize   String?
+  version    String?
+  visibility String   @default("All Employees")
+  fileUrl    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
