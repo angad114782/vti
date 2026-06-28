@@ -89,7 +89,7 @@ export const assignPlan = async (req: Request, res: Response): Promise<void> => 
         $set: { plan, billingCycle: billingCycle ?? 'Monthly', amount: planData.get('price'), endDate, isActive: true },
         $setOnInsert: { companyId, startDate: new Date() },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: "after" },
     );
 
     await Company.findByIdAndUpdate(companyId, {

@@ -14,7 +14,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const user = await User.findOne({ email }).populate('company', 'id name');
+    const user = await User.findOne({ email }).populate('companyId', 'id name');
 
     if (!user || !user.get('isActive')) {
       res.status(401).json({ message: 'Invalid credentials' });
@@ -48,7 +48,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       ipAddress: req.ip,
     });
 
-    const company = user.get('company');
+    const company = user.get('companyId');
     res.json({
       accessToken,
       refreshToken,
@@ -62,6 +62,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       },
     });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };

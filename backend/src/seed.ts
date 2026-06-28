@@ -56,13 +56,13 @@ async function seed() {
 
   // ── Plans ──────────────────────────────────────────────
   for (const p of plans) {
-    await Plan.findOneAndUpdate({ type: p.type as any }, p, { upsert: true, new: true });
+    await Plan.findOneAndUpdate({ type: p.type as any }, p, { upsert: true, returnDocument: "after" });
     console.log(`Plan upserted: ${p.name}`);
   }
 
   // ── Modules ────────────────────────────────────────────
   for (const m of modules) {
-    await Module.findOneAndUpdate({ name: m.name }, m, { upsert: true, new: true });
+    await Module.findOneAndUpdate({ name: m.name }, m, { upsert: true, returnDocument: "after" });
     console.log(`Module upserted: ${m.name}`);
   }
 

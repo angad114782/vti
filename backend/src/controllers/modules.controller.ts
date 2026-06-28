@@ -43,7 +43,7 @@ export const toggleModule = async (req: Request, res: Response) => {
   const cm = await CompanyModule.findOneAndUpdate(
     { companyId, moduleId },
     { isEnabled },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: "after" },
   );
 
   res.json(cm);
