@@ -10,7 +10,6 @@ const avatarColors = [
 const getAv = (n: string) => avatarColors[n.charCodeAt(0) % avatarColors.length]!;
 const ini   = (n: string) => n.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
-const today = new Date().toLocaleDateString('en-IN', { weekday: 'short', month: 'short', d: undefined, day: 'numeric', year: 'numeric' } as Intl.DateTimeFormatOptions);
 
 export default function CompanyAdminLayout() {
   const { user } = useAuthStore();

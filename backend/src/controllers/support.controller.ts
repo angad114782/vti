@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
-import { PrismaClient, TicketStatus, TicketPriority } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import SupportTicket from '../models/SupportTicket';
+import Company from '../models/Company';
 
 export const getTickets = async (req: Request, res: Response) => {
   const page = (req.query.page as string) || '1';
@@ -13,36 +12,32 @@ export const getTickets = async (req: Request, res: Response) => {
   const skip = (parseInt(page) - 1) * parseInt(limit);
 
   const where: Record<string, unknown> = {};
-  if (status && status !== 'ALL') where.status = status as TicketStatus;
-  if (priority && priority !== 'ALL') where.priority = priority as TicketPriority;
+  if (status && status !== 'ALL') where.status = status;
+  if (priority && priority !== 'ALL') where.priority = priority;
   if (company && company !== 'ALL') where.companyId = company;
   if (search) {
-    where.OR = [
-      { subject: { contains: search, mode: 'insensitive' } },
-      { ticketNo: { contains: search, mode: 'insensitive' } },
-      { category: { contains: search, mode: 'insensitive' } },
+    where.$or = [
+      { subject: new RegExp(search, 'i') },
+      { ticketNo: new RegExp(search, 'i') },
+      { category: new RegExp(search, 'i') },
     ];
   }
 
   const [tickets, total] = await Promise.all([
-    prisma.supportTicket.findMany({
-      where,
-      include: {
-        user: { select: { id: true, name: true, email: true, role: true } },
-        company: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: parseInt(limit),
-    }),
-    prisma.supportTicket.count({ where }),
+    SupportTicket.find(where)
+      .populate('userId', 'id name email role')
+      .populate('companyId', 'id name')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit)),
+    SupportTicket.countDocuments(where),
   ]);
 
   const [totalAll, open, inProgress, resolved] = await Promise.all([
-    prisma.supportTicket.count(),
-    prisma.supportTicket.count({ where: { status: 'PENDING' } }),
-    prisma.supportTicket.count({ where: { status: 'IN_PROGRESS' } }),
-    prisma.supportTicket.count({ where: { status: 'RESOLVED' } }),
+    SupportTicket.countDocuments(),
+    SupportTicket.countDocuments({ status: 'PENDING' }),
+    SupportTicket.countDocuments({ status: 'IN_PROGRESS' }),
+    SupportTicket.countDocuments({ status: 'RESOLVED' }),
   ]);
 
   res.json({
@@ -54,13 +49,9 @@ export const getTickets = async (req: Request, res: Response) => {
 
 export const getTicket = async (req: Request, res: Response) => {
   const id = req.params.id as string;
-  const ticket = await prisma.supportTicket.findUnique({
-    where: { id },
-    include: {
-      user: { select: { id: true, name: true, email: true, role: true } },
-      company: { select: { id: true, name: true } },
-    },
-  });
+  const ticket = await SupportTicket.findById(id)
+    .populate('userId', 'id name email role')
+    .populate('companyId', 'id name');
   if (!ticket) { res.status(404).json({ message: 'Ticket not found' }); return; }
   res.json(ticket);
 };
@@ -68,51 +59,45 @@ export const getTicket = async (req: Request, res: Response) => {
 export const createTicket = async (req: Request, res: Response) => {
   const { category, subject, description, priority, companyId } = req.body as {
     category: string; subject: string; description: string;
-    priority?: TicketPriority; companyId?: string;
+    priority?: string; companyId?: string;
   };
 
   const user = (req as unknown as { user: { id: string } }).user;
   const ticketNo = `#TKT${Date.now().toString().slice(-6)}`;
 
-  const ticket = await prisma.supportTicket.create({
-    data: {
-      ticketNo,
-      userId: user.id,
-      companyId: companyId || null,
-      category,
-      subject,
-      description,
-      priority: priority ?? 'MEDIUM',
-    },
-    include: {
-      user: { select: { id: true, name: true, email: true, role: true } },
-      company: { select: { id: true, name: true } },
-    },
+  const ticket = await SupportTicket.create({
+    ticketNo,
+    userId: user.id,
+    companyId: companyId || null,
+    category,
+    subject,
+    description,
+    priority: (priority ?? 'MEDIUM') as any,
   });
 
-  res.status(201).json(ticket);
+  const populated = await SupportTicket.findById((ticket as any)._id)
+    .populate('userId', 'id name email role')
+    .populate('companyId', 'id name');
+
+  res.status(201).json(populated);
 };
 
 export const updateTicket = async (req: Request, res: Response) => {
   const id = req.params.id as string;
-  const { status, priority } = req.body as { status?: TicketStatus; priority?: TicketPriority };
+  const { status, priority } = req.body as { status?: string; priority?: string };
 
-  const ticket = await prisma.supportTicket.update({
-    where: { id },
-    data: { ...(status && { status }), ...(priority && { priority }) },
-    include: {
-      user: { select: { id: true, name: true, email: true, role: true } },
-      company: { select: { id: true, name: true } },
-    },
-  });
+  const update: Record<string, unknown> = {};
+  if (status) update.status = status;
+  if (priority) update.priority = priority;
+
+  const ticket = await SupportTicket.findByIdAndUpdate(id, update, { new: true })
+    .populate('userId', 'id name email role')
+    .populate('companyId', 'id name');
 
   res.json(ticket);
 };
 
 export const getCompaniesForSupport = async (_req: Request, res: Response) => {
-  const companies = await prisma.company.findMany({
-    select: { id: true, name: true },
-    orderBy: { name: 'asc' },
-  });
+  const companies = await Company.find().select('id name').sort({ name: 1 });
   res.json(companies);
 };

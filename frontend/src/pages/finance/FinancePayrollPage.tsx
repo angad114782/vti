@@ -19,7 +19,6 @@ const avatarColors = [
 ];
 const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
 const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
-const fmtCtc = (n: number | null) => n ? `₹${(n / 100000).toFixed(2)}L` : '₹0';
 const fmtPay = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
 function StepBar({ step }: { step: Step }) {

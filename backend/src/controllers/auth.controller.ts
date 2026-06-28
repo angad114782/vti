@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
-import prisma from '../utils/prisma';
+import User from '../models/User';
+import RefreshToken from '../models/RefreshToken';
+import ActivityLog from '../models/ActivityLog';
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt';
 
 export const login = async (req: Request, res: Response): Promise<void> => {
@@ -12,54 +14,51 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const user = await prisma.user.findUnique({
-      where: { email },
-      include: { company: { select: { id: true, name: true } } },
-    });
+    const user = await User.findOne({ email }).populate('company', 'id name');
 
-    if (!user || !user.isActive) {
+    if (!user || !user.get('isActive')) {
       res.status(401).json({ message: 'Invalid credentials' });
       return;
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    const isPasswordValid = await bcrypt.compare(password, user.get('password'));
     if (!isPasswordValid) {
       res.status(401).json({ message: 'Invalid credentials' });
       return;
     }
 
-    const payload = { userId: user.id, email: user.email, role: user.role, companyId: user.companyId ?? undefined };
+    const userId = user._id.toString();
+    const companyId = user.get('companyId')?.toString();
+
+    const payload = { userId, email: user.get('email'), role: user.get('role'), companyId };
     const accessToken = generateAccessToken(payload);
     const refreshToken = generateRefreshToken(payload);
 
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    await prisma.refreshToken.create({
-      data: { token: refreshToken, userId: user.id, expiresAt },
+    await RefreshToken.create({ token: refreshToken, userId: user._id, expiresAt });
+
+    await ActivityLog.create({
+      userId: user._id,
+      companyId: user.get('companyId'),
+      action: 'Logged In',
+      module: 'Auth',
+      status: 'Success',
+      ipAddress: req.ip,
     });
 
-    await prisma.activityLog.create({
-      data: {
-        userId: user.id,
-        companyId: user.companyId,
-        action: 'Logged In',
-        module: 'Auth',
-        status: 'Success',
-        ipAddress: req.ip,
-      },
-    });
-
+    const company = user.get('company');
     res.json({
       accessToken,
       refreshToken,
       user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar,
-        company: user.company,
+        id: userId,
+        name: user.get('name'),
+        email: user.get('email'),
+        role: user.get('role'),
+        avatar: user.get('avatar'),
+        company: company ? { id: company._id.toString(), name: company.name } : null,
       },
     });
   } catch (error) {
@@ -77,13 +76,13 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
 
     const decoded = verifyRefreshToken(token);
 
-    const stored = await prisma.refreshToken.findUnique({ where: { token } });
-    if (!stored || stored.expiresAt < new Date()) {
+    const stored = await RefreshToken.findOne({ token });
+    if (!stored || stored.get('expiresAt') < new Date()) {
       res.status(401).json({ message: 'Invalid or expired refresh token' });
       return;
     }
 
-    await prisma.refreshToken.delete({ where: { token } });
+    await RefreshToken.deleteOne({ token });
 
     const payload = { userId: decoded.userId, email: decoded.email, role: decoded.role };
     const newAccessToken = generateAccessToken(payload);
@@ -92,9 +91,7 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7);
 
-    await prisma.refreshToken.create({
-      data: { token: newRefreshToken, userId: decoded.userId, expiresAt },
-    });
+    await RefreshToken.create({ token: newRefreshToken, userId: decoded.userId, expiresAt });
 
     res.json({ accessToken: newAccessToken, refreshToken: newRefreshToken });
   } catch {
@@ -106,7 +103,7 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
   try {
     const { refreshToken: token } = req.body as { refreshToken: string };
     if (token) {
-      await prisma.refreshToken.deleteMany({ where: { token } });
+      await RefreshToken.deleteMany({ token });
     }
     res.json({ message: 'Logged out successfully' });
   } catch {
@@ -121,12 +118,12 @@ export const changePassword = async (req: Request & { user?: { userId: string } 
       res.status(400).json({ message: 'Current and new password are required' });
       return;
     }
-    const user = await prisma.user.findUnique({ where: { id: req.user!.userId } });
+    const user = await User.findById(req.user!.userId);
     if (!user) { res.status(404).json({ message: 'User not found' }); return; }
-    const valid = await bcrypt.compare(currentPassword, user.password);
+    const valid = await bcrypt.compare(currentPassword, user.get('password'));
     if (!valid) { res.status(401).json({ message: 'Current password is incorrect' }); return; }
     const hashed = await bcrypt.hash(newPassword, 10);
-    await prisma.user.update({ where: { id: user.id }, data: { password: hashed } });
+    await User.findByIdAndUpdate(user._id, { password: hashed });
     res.json({ message: 'Password updated successfully' });
   } catch {
     res.status(500).json({ message: 'Internal server error' });
@@ -135,22 +132,24 @@ export const changePassword = async (req: Request & { user?: { userId: string } 
 
 export const getMe = async (req: Request & { user?: { userId: string } }, res: Response): Promise<void> => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user!.userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        avatar: true,
-        company: { select: { id: true, name: true } },
-      },
-    });
+    const user = await User.findById(req.user!.userId)
+      .select('name email role avatar')
+      .populate('companyId', 'name');
+
     if (!user) {
       res.status(404).json({ message: 'User not found' });
       return;
     }
-    res.json(user);
+
+    const company = user.get('companyId') as { _id: { toString(): string }; name: string } | null;
+    res.json({
+      id: user._id.toString(),
+      name: user.get('name'),
+      email: user.get('email'),
+      role: user.get('role'),
+      avatar: user.get('avatar'),
+      company: company ? { id: company._id.toString(), name: company.name } : null,
+    });
   } catch {
     res.status(500).json({ message: 'Internal server error' });
   }

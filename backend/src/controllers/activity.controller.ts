@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
-import prisma from '../utils/prisma';
+import ActivityLog from '../models/ActivityLog';
+import Company from '../models/Company';
+import User from '../models/User';
 
 export const getActivityLogs = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -10,58 +12,53 @@ export const getActivityLogs = async (req: Request, res: Response): Promise<void
     } = req.query as Record<string, string>;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-
     const where: Record<string, unknown> = {};
 
-    if (type === 'login') {
-      where.action = 'Logged In';
-    }
-
-    if (search) {
-      where.OR = [
-        { user: { name: { contains: search, mode: 'insensitive' } } },
-        { company: { name: { contains: search, mode: 'insensitive' } } },
-      ];
-    }
+    if (type === 'login') where.action = 'Logged In';
     if (company && company !== 'ALL') where.companyId = company;
-    if (role && role !== 'ALL') where.user = { role };
-    if (action && action !== 'ALL') where.action = { contains: action, mode: 'insensitive' };
+    if (action && action !== 'ALL') where.action = new RegExp(action, 'i');
     if (module && module !== 'ALL') where.module = module;
     if (status && status !== 'ALL') where.status = status;
 
+    if (role && role !== 'ALL') {
+      const users = await User.find({ role: role as any }).select('_id').lean();
+      where.userId = { $in: users.map((u) => u._id) };
+    }
+
+    if (search) {
+      const [users, companies] = await Promise.all([
+        User.find({ name: new RegExp(search, 'i') }).select('_id').lean(),
+        Company.find({ name: new RegExp(search, 'i') }).select('_id').lean(),
+      ]);
+      where.$or = [
+        { userId: { $in: users.map((u) => u._id) } },
+        { companyId: { $in: companies.map((c) => c._id) } },
+      ];
+    }
+
     const [logs, total] = await Promise.all([
-      prisma.activityLog.findMany({
-        where,
-        skip,
-        take: parseInt(limit),
-        include: {
-          user: { select: { id: true, name: true, email: true, role: true } },
-          company: { select: { id: true, name: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.activityLog.count({ where }),
+      ActivityLog.find(where)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .sort({ createdAt: -1 })
+        .populate('userId', 'id name email role')
+        .populate('companyId', 'id name'),
+      ActivityLog.countDocuments(where),
     ]);
 
-    // Stats
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const [totalLogs, todayLogs, successLogs, failedLogs] = await Promise.all([
-      prisma.activityLog.count(),
-      prisma.activityLog.count({ where: { createdAt: { gte: today } } }),
-      prisma.activityLog.count({ where: { status: 'Success' } }),
-      prisma.activityLog.count({ where: { status: 'Failed' } }),
+      ActivityLog.countDocuments(),
+      ActivityLog.countDocuments({ createdAt: { $gte: today } }),
+      ActivityLog.countDocuments({ status: 'Success' }),
+      ActivityLog.countDocuments({ status: 'Failed' }),
     ]);
 
     res.json({
       logs,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / parseInt(limit)),
-      },
+      pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) },
       stats: { total: totalLogs, today: todayLogs, success: successLogs, failed: failedLogs },
     });
   } catch (err) {
@@ -72,10 +69,7 @@ export const getActivityLogs = async (req: Request, res: Response): Promise<void
 
 export const getCompaniesFilter = async (_req: Request, res: Response): Promise<void> => {
   try {
-    const companies = await prisma.company.findMany({
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
-    });
+    const companies = await Company.find().select('id name').sort({ name: 1 });
     res.json(companies);
   } catch {
     res.status(500).json({ message: 'Internal server error' });

@@ -161,7 +161,6 @@ export default function EmployeesPage() {
 
   useEffect(() => { void fetch(); }, [fetch]);
 
-  const selectStyle: React.CSSProperties = { padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#374151', backgroundColor: 'white', cursor: 'pointer', outline: 'none', fontFamily: 'Inter, sans-serif' };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>

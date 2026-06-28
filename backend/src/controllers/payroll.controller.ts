@@ -1,7 +1,9 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import Employee from '../models/Employee';
+import SalaryStructure from '../models/SalaryStructure';
+import Payslip from '../models/Payslip';
+import User from '../models/User';
 
-const prisma = new PrismaClient();
 const getCompanyId = (req: Request) => (req as unknown as { user: { companyId?: string } }).user.companyId;
 
 export const getSalaryStructures = async (req: Request, res: Response) => {
@@ -11,26 +13,32 @@ export const getSalaryStructures = async (req: Request, res: Response) => {
   const empWhere: Record<string, unknown> = { companyId };
   if (department && department !== 'ALL') empWhere.department = department;
   if (employmentType && employmentType !== 'ALL') empWhere.employmentType = employmentType;
-  if (search) empWhere.user = { name: { contains: search, mode: 'insensitive' } };
 
-  const employees = await prisma.employee.findMany({
-    where: empWhere,
-    include: {
-      user: { select: { name: true } },
-      salaryStructure: { orderBy: { createdAt: 'desc' }, take: 1 },
-    },
-  });
+  if (search) {
+    const users = await User.find({ name: new RegExp(search, 'i') }).select('_id').lean();
+    empWhere.userId = { $in: users.map((u) => u._id) };
+  }
 
-  res.json(employees.map((e) => ({
-    id: e.id,
-    employeeId: e.employeeId,
-    name: e.user.name,
-    department: e.department,
-    designation: e.designation,
-    employmentType: e.employmentType,
-    annualCtc: e.salaryStructure[0]?.annualCtc ?? e.annualCtc,
-    lastRevised: e.salaryStructure[0]?.lastRevised,
-  })));
+  const employees = await Employee.find(empWhere).populate('userId', 'name').lean();
+
+  const results = await Promise.all(
+    employees.map(async (e) => {
+      const latest = await SalaryStructure.findOne({ employeeId: e._id }).sort({ createdAt: -1 }).lean();
+      const user = e.userId as unknown as { name: string } | null;
+      return {
+        id: e._id.toString(),
+        employeeId: e.employeeId,
+        name: user?.name ?? '',
+        department: e.department,
+        designation: e.designation,
+        employmentType: e.employmentType,
+        annualCtc: latest?.annualCtc ?? e.annualCtc,
+        lastRevised: latest?.lastRevised,
+      };
+    }),
+  );
+
+  res.json(results);
 };
 
 export const getPayslips = async (req: Request, res: Response) => {
@@ -40,13 +48,16 @@ export const getPayslips = async (req: Request, res: Response) => {
   const where: Record<string, unknown> = { companyId };
   if (month && month !== 'ALL') where.month = parseInt(month);
   if (year && year !== 'ALL') where.year = parseInt(year);
-  if (search) where.employee = { user: { name: { contains: search, mode: 'insensitive' } } };
 
-  const payslips = await prisma.payslip.findMany({
-    where,
-    include: { employee: { include: { user: { select: { name: true } } } } },
-    orderBy: [{ year: 'desc' }, { month: 'desc' }],
-  });
+  if (search) {
+    const users = await User.find({ name: new RegExp(search, 'i') }).select('_id').lean();
+    const emps = await Employee.find({ userId: { $in: users.map((u) => u._id) }, companyId }).select('_id').lean();
+    where.employeeId = { $in: emps.map((e) => e._id) };
+  }
+
+  const payslips = await Payslip.find(where)
+    .populate({ path: 'employeeId', populate: { path: 'userId', select: 'name' } })
+    .sort({ year: -1, month: -1 });
 
   res.json(payslips);
 };

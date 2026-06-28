@@ -51,7 +51,7 @@ export default function ManagerAttendancePage() {
 
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-        {STAT_CARDS.map(({ label, value, sub, color, bg }) => (
+        {STAT_CARDS.map(({ label, value, sub, color }) => (
           <div key={label} style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <p style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>{label}</p>

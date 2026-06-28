@@ -55,7 +55,7 @@ export default function MyPayslipsPage() {
         <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
           <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '12px' }}>Net Pay Trend</h3>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0' }}>
-            {[...payslips].reverse().map((p, i, arr) => {
+            {[...payslips].reverse().map((p, _i, arr) => {
               const max = Math.max(...arr.map((x) => x.netPay));
               const pct = (p.netPay / max) * 100;
               return (

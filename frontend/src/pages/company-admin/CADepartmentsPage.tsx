@@ -44,7 +44,6 @@ export default function CADepartmentsPage() {
               {depts.map((d, idx) => {
                 const pct    = totalEmp > 0 ? (d.total / totalEmp) * 100 : 0;
                 const color  = DEPT_COLORS[idx % DEPT_COLORS.length]!;
-                const actPct = d.total > 0 ? Math.round((d.active / d.total) * 100) : 0;
                 return (
                   <div key={d.name}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>

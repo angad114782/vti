@@ -1,5 +1,2 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
-
-export default prisma;
+// Prisma removed — use Mongoose models from src/models/ instead
+export {};

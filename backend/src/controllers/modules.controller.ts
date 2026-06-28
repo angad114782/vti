@@ -1,38 +1,33 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import Module from '../models/Module';
+import CompanyModule from '../models/CompanyModule';
+import RolePermission from '../models/RolePermission';
+import Company from '../models/Company';
 
-const prisma = new PrismaClient();
-
-// GET /modules — all modules with optional company toggle state
 export const getModules = async (req: Request, res: Response) => {
   const { companyId } = req.query as { companyId?: string };
 
-  const modules = await prisma.module.findMany({ orderBy: { createdAt: 'asc' } });
+  const modules = await Module.find().sort({ createdAt: 1 });
 
   let companyModuleMap: Record<string, boolean> = {};
   if (companyId) {
-    const cms = await prisma.companyModule.findMany({ where: { companyId } });
-    for (const cm of cms) companyModuleMap[cm.moduleId] = cm.isEnabled;
+    const cms = await CompanyModule.find({ companyId }).lean();
+    for (const cm of cms) companyModuleMap[cm.moduleId.toString()] = cm.isEnabled;
   }
 
   const data = modules.map((m) => ({
-    ...m,
-    isEnabled: companyId ? (companyModuleMap[m.id] ?? false) : null,
+    ...m.toJSON(),
+    isEnabled: companyId ? (companyModuleMap[m._id.toString()] ?? false) : null,
   }));
 
   res.json({ modules: data });
 };
 
-// GET /modules/companies — companies dropdown
 export const getCompaniesForModules = async (_req: Request, res: Response) => {
-  const companies = await prisma.company.findMany({
-    select: { id: true, name: true, plan: true },
-    orderBy: { name: 'asc' },
-  });
+  const companies = await Company.find().select('id name plan').sort({ name: 1 });
   res.json(companies);
 };
 
-// PUT /modules/toggle — toggle a module for a company
 export const toggleModule = async (req: Request, res: Response) => {
   const { companyId, moduleId, isEnabled } = req.body as {
     companyId: string;
@@ -45,33 +40,31 @@ export const toggleModule = async (req: Request, res: Response) => {
     return;
   }
 
-  const cm = await prisma.companyModule.upsert({
-    where: { companyId_moduleId: { companyId, moduleId } },
-    update: { isEnabled },
-    create: { companyId, moduleId, isEnabled },
-  });
+  const cm = await CompanyModule.findOneAndUpdate(
+    { companyId, moduleId },
+    { isEnabled },
+    { upsert: true, new: true },
+  );
 
   res.json(cm);
 };
 
-// GET /modules/permissions?role=Administrator
 export const getPermissions = async (req: Request, res: Response) => {
   const { role } = req.query as { role?: string };
 
   const where = role ? { role } : {};
-  const perms = await prisma.rolePermission.findMany({ where, orderBy: [{ module: 'asc' }, { permission: 'asc' }] });
+  const perms = await RolePermission.find(where).sort({ module: 1, permission: 1 });
 
-  // Group by module
   const grouped: Record<string, { permission: string; isGranted: boolean }[]> = {};
   for (const p of perms) {
-    if (!grouped[p.module]) grouped[p.module] = [];
-    grouped[p.module]!.push({ permission: p.permission, isGranted: p.isGranted });
+    const mod = p.get('module') as string;
+    if (!grouped[mod]) grouped[mod] = [];
+    grouped[mod]!.push({ permission: p.get('permission'), isGranted: p.get('isGranted') });
   }
 
   res.json({ role: role ?? null, permissions: grouped });
 };
 
-// PUT /modules/permissions — update a single permission toggle
 export const updatePermission = async (req: Request, res: Response) => {
   const { role, permission, isGranted } = req.body as {
     role: string;
@@ -84,10 +77,11 @@ export const updatePermission = async (req: Request, res: Response) => {
     return;
   }
 
-  const updated = await prisma.rolePermission.update({
-    where: { role_permission: { role, permission } },
-    data: { isGranted },
-  });
+  const updated = await RolePermission.findOneAndUpdate(
+    { role, permission },
+    { isGranted },
+    { new: true },
+  );
 
   res.json(updated);
 };

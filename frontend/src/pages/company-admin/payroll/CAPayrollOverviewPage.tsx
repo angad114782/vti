@@ -288,7 +288,7 @@ export default function CAPayrollOverviewPage() {
 
           {/* Status pills */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '7px' }}>
-            {PROC_STATUS.map(({ label, count, color, bg }) => {
+            {PROC_STATUS.map(({ label, count, color }) => {
               const pct = Math.round((count / TOTAL_EMP) * 100);
               return (
                 <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>

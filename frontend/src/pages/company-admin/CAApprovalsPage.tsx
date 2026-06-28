@@ -55,7 +55,7 @@ export default function CAApprovalsPage() {
   const [tab, setTab] = useState<ApprovalTab>('pending');
   const [sub, setSub] = useState<SubTab>('leave');
 
-  const filterStatus = (arr: { status: string }[]) =>
+  const filterStatus = <T extends { status: string }>(arr: T[]): T[] =>
     arr.filter((r) => tab === 'pending' ? r.status === 'pending' : tab === 'approved' ? r.status === 'approved' : r.status === 'rejected');
 
   const leaves      = filterStatus(LEAVE_REQUESTS);

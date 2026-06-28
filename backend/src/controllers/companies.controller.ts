@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
-import prisma from '../utils/prisma';
-import { PlanType, CompanyStatus } from '@prisma/client';
+import mongoose from 'mongoose';
+import Company from '../models/Company';
+import User from '../models/User';
+import Subscription from '../models/Subscription';
+import CompanyModule from '../models/CompanyModule';
 
 export const getCompanies = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -9,39 +12,39 @@ export const getCompanies = async (req: Request, res: Response): Promise<void> =
 
     const where: Record<string, unknown> = {};
     if (search) {
-      where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
-        { industry: { contains: search, mode: 'insensitive' } },
+      where.$or = [
+        { name: new RegExp(search, 'i') },
+        { email: new RegExp(search, 'i') },
+        { industry: new RegExp(search, 'i') },
       ];
     }
-    if (plan && plan !== 'ALL') where.plan = plan as PlanType;
-    if (status && status !== 'ALL') where.status = status as CompanyStatus;
+    if (plan && plan !== 'ALL') where.plan = plan;
+    if (status && status !== 'ALL') where.status = status;
 
     const [companies, total] = await Promise.all([
-      prisma.company.findMany({
-        where,
-        skip,
-        take: parseInt(limit),
-        include: { _count: { select: { users: true } } },
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.company.count({ where }),
+      Company.find(where).skip(skip).limit(parseInt(limit)).sort({ createdAt: -1 }).lean(),
+      Company.countDocuments(where),
     ]);
 
+    const userCounts = await User.aggregate([
+      { $match: { companyId: { $in: companies.map((c) => c._id) } } },
+      { $group: { _id: '$companyId', count: { $sum: 1 } } },
+    ]);
+    const countMap: Record<string, number> = {};
+    userCounts.forEach((u) => { countMap[u._id.toString()] = u.count; });
+
+    const now = new Date();
+    const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
     const [totalCount, activeCount, trialCount, expiringCount] = await Promise.all([
-      prisma.company.count(),
-      prisma.company.count({ where: { status: 'ACTIVE' } }),
-      prisma.company.count({ where: { status: 'TRIAL' } }),
-      prisma.company.count({
-        where: {
-          planExpiry: { lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), gte: new Date() },
-        },
-      }),
+      Company.countDocuments(),
+      Company.countDocuments({ status: 'ACTIVE' }),
+      Company.countDocuments({ status: 'TRIAL' }),
+      Company.countDocuments({ planExpiry: { $lte: in30, $gte: now } }),
     ]);
 
     res.json({
-      companies: companies.map((c) => ({ ...c, userCount: c._count.users })),
+      companies: companies.map((c) => ({ ...c, id: c._id.toString(), _id: undefined, userCount: countMap[c._id.toString()] ?? 0 })),
       pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) },
       stats: { total: totalCount, active: activeCount, trial: trialCount, expiringSoon: expiringCount },
     });
@@ -54,16 +57,23 @@ export const getCompanies = async (req: Request, res: Response): Promise<void> =
 export const getCompany = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params as { id: string };
-    const company = await prisma.company.findUnique({
-      where: { id },
-      include: {
-        _count: { select: { users: true } },
-        subscription: true,
-        modules: { include: { module: true } },
-      },
-    });
+    const company = await Company.findById(id).lean();
     if (!company) { res.status(404).json({ message: 'Company not found' }); return; }
-    res.json(company);
+
+    const [userCount, subscription, modules] = await Promise.all([
+      User.countDocuments({ companyId: company._id }),
+      Subscription.findOne({ companyId: company._id }).lean(),
+      CompanyModule.find({ companyId: company._id }).populate('moduleId').lean(),
+    ]);
+
+    res.json({
+      ...company,
+      id: company._id.toString(),
+      _id: undefined,
+      _count: { users: userCount },
+      subscription,
+      modules,
+    });
   } catch {
     res.status(500).json({ message: 'Internal server error' });
   }
@@ -71,21 +81,16 @@ export const getCompany = async (req: Request, res: Response): Promise<void> => 
 
 export const createCompany = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, industry, email, phone, address, plan, status, maxUsers, planExpiry } = req.body as {
-      name: string; industry?: string; email?: string; phone?: string; address?: string;
-      plan?: PlanType; status?: CompanyStatus; maxUsers?: number; planExpiry?: string;
-    };
+    const { name, industry, email, phone, address, plan, status, maxUsers, planExpiry } = req.body as Record<string, string>;
 
     if (!name) { res.status(400).json({ message: 'Company name is required' }); return; }
 
-    const company = await prisma.company.create({
-      data: {
-        name, industry, email, phone, address,
-        plan: plan ?? 'BASIC',
-        status: status ?? 'TRIAL',
-        maxUsers: maxUsers ?? 100,
-        planExpiry: planExpiry ? new Date(planExpiry) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      },
+    const company = await Company.create({
+      name, industry, email, phone, address,
+      plan: (plan ?? 'BASIC') as any,
+      status: (status ?? 'TRIAL') as any,
+      maxUsers: maxUsers ? parseInt(maxUsers) : 100,
+      planExpiry: planExpiry ? new Date(planExpiry) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
     });
     res.status(201).json(company);
   } catch {
@@ -96,25 +101,20 @@ export const createCompany = async (req: Request, res: Response): Promise<void> 
 export const updateCompany = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params as { id: string };
-    const { name, industry, email, phone, address, plan, status, maxUsers, planExpiry } = req.body as {
-      name?: string; industry?: string; email?: string; phone?: string; address?: string;
-      plan?: PlanType; status?: CompanyStatus; maxUsers?: number; planExpiry?: string;
-    };
+    const { name, industry, email, phone, address, plan, status, maxUsers, planExpiry } = req.body as Record<string, string>;
 
-    const company = await prisma.company.update({
-      where: { id },
-      data: {
-        ...(name && { name }),
-        ...(industry !== undefined && { industry }),
-        ...(email !== undefined && { email }),
-        ...(phone !== undefined && { phone }),
-        ...(address !== undefined && { address }),
-        ...(plan && { plan }),
-        ...(status && { status }),
-        ...(maxUsers !== undefined && { maxUsers }),
-        ...(planExpiry && { planExpiry: new Date(planExpiry) }),
-      },
-    });
+    const update: Record<string, any> = {};
+    if (name) update.name = name;
+    if (industry !== undefined) update.industry = industry;
+    if (email !== undefined) update.email = email;
+    if (phone !== undefined) update.phone = phone;
+    if (address !== undefined) update.address = address;
+    if (plan) update.plan = plan;
+    if (status) update.status = status;
+    if (maxUsers !== undefined) update.maxUsers = parseInt(maxUsers);
+    if (planExpiry) update.planExpiry = new Date(planExpiry);
+
+    const company = await Company.findByIdAndUpdate(id, update, { new: true });
     res.json(company);
   } catch {
     res.status(500).json({ message: 'Internal server error' });
@@ -124,7 +124,7 @@ export const updateCompany = async (req: Request, res: Response): Promise<void> 
 export const deleteCompany = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params as { id: string };
-    await prisma.company.delete({ where: { id } });
+    await Company.findByIdAndDelete(id);
     res.json({ message: 'Company deleted successfully' });
   } catch {
     res.status(500).json({ message: 'Internal server error' });

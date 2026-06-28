@@ -1,51 +1,54 @@
 import { Request, Response } from 'express';
-import prisma from '../utils/prisma';
-import { PlanType } from '@prisma/client';
+import Subscription from '../models/Subscription';
+import Plan from '../models/Plan';
+import Company from '../models/Company';
 
 export const getSubscriptions = async (req: Request, res: Response): Promise<void> => {
   try {
     const { search, plan, billing, status, page = '1', limit = '8' } = req.query as Record<string, string>;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const companyWhere: Record<string, unknown> = {};
-    if (search) {
-      companyWhere.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { industry: { contains: search, mode: 'insensitive' } },
-      ];
-    }
-    if (plan && plan !== 'ALL') companyWhere.plan = plan as PlanType;
-
     const subWhere: Record<string, unknown> = {};
     if (status && status !== 'ALL') subWhere.isActive = status === 'ACTIVE';
     if (billing && billing !== 'ALL') subWhere.billingCycle = billing;
+    if (plan && plan !== 'ALL') subWhere.plan = plan;
+
+    let companyIds: string[] | null = null;
+    if (search) {
+      const companies = await Company.find({
+        $or: [{ name: new RegExp(search, 'i') }, { industry: new RegExp(search, 'i') }],
+      }).select('_id').lean();
+      companyIds = companies.map((c) => c._id.toString());
+      subWhere.companyId = { $in: companyIds };
+    }
 
     const [subscriptions, total] = await Promise.all([
-      prisma.subscription.findMany({
-        where: { ...subWhere, company: companyWhere },
-        skip,
-        take: parseInt(limit),
-        include: { company: { select: { id: true, name: true, industry: true, plan: true } } },
-        orderBy: { createdAt: 'desc' },
-      }),
-      prisma.subscription.count({ where: { ...subWhere, company: companyWhere } }),
+      Subscription.find(subWhere)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .sort({ createdAt: -1 })
+        .populate('companyId', 'id name industry plan'),
+      Subscription.countDocuments(subWhere),
     ]);
 
     const now = new Date();
     const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    const [activeCount, trialCount, expiringCount, totalRevenue] = await Promise.all([
-      prisma.subscription.count({ where: { isActive: true } }),
-      prisma.company.count({ where: { status: 'TRIAL' } }),
-      prisma.subscription.count({ where: { endDate: { lte: in30, gte: now }, isActive: true } }),
-      prisma.subscription.aggregate({ _sum: { amount: true }, where: { isActive: true } }),
+    const [activeCount, trialCount, expiringCount, revenueAgg] = await Promise.all([
+      Subscription.countDocuments({ isActive: true }),
+      Company.countDocuments({ status: 'TRIAL' }),
+      Subscription.countDocuments({ endDate: { $lte: in30, $gte: now }, isActive: true }),
+      Subscription.aggregate([
+        { $match: { isActive: true } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
     ]);
 
     res.json({
       subscriptions,
       pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) },
       stats: {
-        monthlyRevenue: totalRevenue._sum.amount ?? 0,
+        monthlyRevenue: revenueAgg[0]?.total ?? 0,
         active: activeCount,
         trial: trialCount,
         expiringSoon: expiringCount,
@@ -59,7 +62,7 @@ export const getSubscriptions = async (req: Request, res: Response): Promise<voi
 
 export const getPlans = async (_req: Request, res: Response): Promise<void> => {
   try {
-    const plans = await prisma.plan.findMany({ where: { isActive: true }, orderBy: { price: 'asc' } });
+    const plans = await Plan.find({ isActive: true }).sort({ price: 1 });
     res.json(plans);
   } catch {
     res.status(500).json({ message: 'Internal server error' });
@@ -69,26 +72,31 @@ export const getPlans = async (_req: Request, res: Response): Promise<void> => {
 export const assignPlan = async (req: Request, res: Response): Promise<void> => {
   try {
     const { companyId, plan, billingCycle, months } = req.body as {
-      companyId: string; plan: PlanType; billingCycle: string; months: number;
+      companyId: string; plan: string; billingCycle: string; months: number;
     };
 
     if (!companyId || !plan) { res.status(400).json({ message: 'companyId and plan are required' }); return; }
 
-    const planData = await prisma.plan.findUnique({ where: { type: plan } });
+    const planData = await Plan.findOne({ type: plan as any });
     if (!planData) { res.status(404).json({ message: 'Plan not found' }); return; }
 
     const endDate = new Date();
     endDate.setMonth(endDate.getMonth() + (months ?? 1));
 
-    await prisma.subscription.upsert({
-      where: { companyId },
-      update: { plan, billingCycle: billingCycle ?? 'Monthly', amount: planData.price, endDate, isActive: true },
-      create: { companyId, plan, billingCycle: billingCycle ?? 'Monthly', amount: planData.price, endDate },
-    });
+    await Subscription.findOneAndUpdate(
+      { companyId },
+      {
+        $set: { plan, billingCycle: billingCycle ?? 'Monthly', amount: planData.get('price'), endDate, isActive: true },
+        $setOnInsert: { companyId, startDate: new Date() },
+      },
+      { upsert: true, new: true },
+    );
 
-    await prisma.company.update({
-      where: { id: companyId },
-      data: { plan, status: 'ACTIVE', planExpiry: endDate, maxUsers: planData.maxUsers },
+    await Company.findByIdAndUpdate(companyId, {
+      plan,
+      status: 'ACTIVE',
+      planExpiry: endDate,
+      maxUsers: planData.get('maxUsers'),
     });
 
     res.json({ message: 'Plan assigned successfully' });
@@ -103,15 +111,12 @@ export const updateSubscription = async (req: Request, res: Response): Promise<v
     const { id } = req.params as { id: string };
     const { billingCycle, isActive, endDate } = req.body as { billingCycle?: string; isActive?: boolean; endDate?: string };
 
-    const sub = await prisma.subscription.update({
-      where: { id },
-      data: {
-        ...(billingCycle && { billingCycle }),
-        ...(isActive !== undefined && { isActive }),
-        ...(endDate && { endDate: new Date(endDate) }),
-      },
-      include: { company: { select: { id: true, name: true } } },
-    });
+    const update: Record<string, unknown> = {};
+    if (billingCycle) update.billingCycle = billingCycle;
+    if (isActive !== undefined) update.isActive = isActive;
+    if (endDate) update.endDate = new Date(endDate);
+
+    const sub = await Subscription.findByIdAndUpdate(id, update, { new: true }).populate('companyId', 'id name');
     res.json(sub);
   } catch {
     res.status(500).json({ message: 'Internal server error' });

@@ -1,8 +1,8 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   Building2, IndianRupee, Users, AlertTriangle,
-  ArrowUpRight, TrendingUp, Bell, AlertCircle, Info,
-  UserPlus, CreditCard, DollarSign, Activity,
+  ArrowUpRight, TrendingUp, AlertCircle,
+  UserPlus, DollarSign, Activity,
   Download, Shield, FileText, BarChart3,
 } from 'lucide-react';
 
@@ -165,7 +165,8 @@ export default function DashboardPage() {
             <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}
               tickFormatter={(v: number) => `${(v / 1000).toFixed(0)}k`} width={36} />
             <Tooltip
-              formatter={(value: number) => [`₹${value.toLocaleString('en-IN')}`, 'Revenue']}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={(value: any) => [`₹${Number(value ?? 0).toLocaleString('en-IN')}`, 'Revenue']}
               contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px' }}
             />
             <Line type="monotone" dataKey="revenue" stroke="#0d7470" strokeWidth={2.5}

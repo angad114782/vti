@@ -1,8 +1,8 @@
 import { Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import Expense from '../models/Expense';
+import Employee from '../models/Employee';
+import User from '../models/User';
 import { AuthRequest } from '../middleware/auth.middleware';
-
-const prisma = new PrismaClient();
 
 export const getExpenses = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -13,26 +13,32 @@ export const getExpenses = async (req: AuthRequest, res: Response): Promise<void
     if (companyId) where.companyId = companyId;
     if (status && status !== 'ALL') where.status = status;
     if (category && category !== 'ALL') where.category = category;
+
     if (search) {
-      where.employee = { user: { name: { contains: search, mode: 'insensitive' } } };
+      const users = await User.find({ name: new RegExp(search, 'i') }).select('_id').lean();
+      const emps = await Employee.find({
+        userId: { $in: users.map((u) => u._id) },
+        ...(companyId ? { companyId } : {}),
+      }).select('_id').lean();
+      where.employeeId = { $in: emps.map((e) => e._id) };
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const [expenses, total] = await Promise.all([
-      prisma.expense.findMany({
-        where,
-        include: { employee: { include: { user: { select: { name: true } } } } },
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: parseInt(limit),
-      }),
-      prisma.expense.count({ where }),
+      Expense.find(where)
+        .populate({ path: 'employeeId', populate: { path: 'userId', select: 'name' } })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Expense.countDocuments(where),
     ]);
 
-    const allForStats = await prisma.expense.findMany({ where: companyId ? { companyId } : {} });
-    const pending  = allForStats.filter((e) => e.status === 'Pending').length;
-    const approved = allForStats.filter((e) => e.status === 'Approved').length;
-    const rejected = allForStats.filter((e) => e.status === 'Rejected').length;
+    const statsWhere = companyId ? { companyId } : {};
+    const [pending, approved, rejected] = await Promise.all([
+      Expense.countDocuments({ ...statsWhere, status: 'Pending' }),
+      Expense.countDocuments({ ...statsWhere, status: 'Approved' }),
+      Expense.countDocuments({ ...statsWhere, status: 'Rejected' }),
+    ]);
 
     res.json({ expenses, total, page: parseInt(page), stats: { pending, approved, rejected } });
   } catch (err) {
@@ -45,8 +51,7 @@ export const updateExpense = async (req: AuthRequest, res: Response): Promise<vo
   try {
     const { id } = req.params as { id: string };
     const { status } = req.body as { status: string };
-
-    const expense = await prisma.expense.update({ where: { id }, data: { status } });
+    const expense = await Expense.findByIdAndUpdate(id, { status }, { new: true });
     res.json(expense);
   } catch (err) {
     console.error(err);

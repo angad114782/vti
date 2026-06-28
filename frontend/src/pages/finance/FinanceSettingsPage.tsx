@@ -48,7 +48,7 @@ export default function FinanceSettingsPage() {
     expenseApprovals: true, expenseSubmitted: false,
     taxDeadlines: true, dailyDigest: true, weeklyReports: false,
   });
-  const [show2FA, setShow2FA] = useState(false);
+  const [show2FA] = useState(false);
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
   const name = user?.name ?? 'Finance Admin';
   const av = getAv(name);

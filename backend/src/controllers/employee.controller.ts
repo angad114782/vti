@@ -1,17 +1,15 @@
 import { Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth.middleware';
-
-const prisma = new PrismaClient();
+import Employee from '../models/Employee';
+import LeaveRequest from '../models/LeaveRequest';
+import Payslip from '../models/Payslip';
+import Expense from '../models/Expense';
+import Document from '../models/Document';
 
 const getEmployee = async (userId: string) => {
-  return prisma.employee.findUnique({
-    where: { userId },
-    include: { user: { select: { name: true, email: true, avatar: true } } },
-  });
+  return Employee.findOne({ userId }).populate('userId', 'name email avatar');
 };
 
-// GET /api/employee/profile
 export const getMyProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const emp = await getEmployee(req.user!.userId);
@@ -23,7 +21,6 @@ export const getMyProfile = async (req: AuthRequest, res: Response): Promise<voi
   }
 };
 
-// GET /api/employee/attendance
 export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const emp = await getEmployee(req.user!.userId);
@@ -33,32 +30,30 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
     const year  = parseInt((req.query.year  as string) || String(now.getFullYear()));
     const month = parseInt((req.query.month as string) || String(now.getMonth() + 1));
 
-    // Get approved leaves for this month
     const startOfMonth = new Date(year, month - 1, 1);
     const endOfMonth   = new Date(year, month, 0);
-    const leaves = await prisma.leaveRequest.findMany({
-      where: {
-        employeeId: emp.id,
-        status: 'Approved',
-        startDate: { lte: endOfMonth },
-        endDate:   { gte: startOfMonth },
-      },
+    const leaves = await LeaveRequest.find({
+      employeeId: emp._id,
+      status: 'Approved',
+      startDate: { $lte: endOfMonth },
+      endDate:   { $gte: startOfMonth },
     });
 
     const leaveDays = new Set<number>();
     leaves.forEach((l) => {
-      const s = new Date(l.startDate);
-      const e = new Date(l.endDate);
+      const s = new Date(l.get('startDate'));
+      const e = new Date(l.get('endDate'));
       for (let d = new Date(s); d <= e; d.setDate(d.getDate() + 1)) {
         if (d.getMonth() + 1 === month) leaveDays.add(d.getDate());
       }
     });
 
-    // Generate daily records
     const daysInMonth = endOfMonth.getDate();
     const records: { date: string; day: string; status: string; checkIn: string; checkOut: string; hours: string; ot: string }[] = [];
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     let present = 0; let absent = 0; let late = 0; let totalHours = 0;
+
+    const empIdStr = emp._id.toString();
 
     for (let d = 1; d <= daysInMonth; d++) {
       const dt    = new Date(year, month - 1, d);
@@ -77,7 +72,7 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
         status = 'Leave';
         absent++;
       } else {
-        const seed  = (emp.id.charCodeAt(0) + d) % 10;
+        const seed  = (empIdStr.charCodeAt(0) + d) % 10;
         const isLate = seed < 2;
         const h     = 8 + (seed % 2);
         const min   = isLate ? 15 + (seed * 7) % 30 : (seed * 3) % 30;
@@ -98,13 +93,7 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
 
     res.json({
       records,
-      stats: {
-        present,
-        late,
-        absent: workingDays - present - late,
-        totalHours: Math.round(totalHours),
-        workingDays,
-      },
+      stats: { present, late, absent: workingDays - present - late, totalHours: Math.round(totalHours), workingDays },
     });
   } catch (err) {
     console.error(err);
@@ -112,34 +101,29 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
   }
 };
 
-// GET /api/employee/leaves
 export const getMyLeaves = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const emp = await getEmployee(req.user!.userId);
     if (!emp) { res.status(404).json({ message: 'Employee not found' }); return; }
 
-    const leaves = await prisma.leaveRequest.findMany({
-      where: { employeeId: emp.id },
-      orderBy: { createdAt: 'desc' },
-    });
+    const leaves = await LeaveRequest.find({ employeeId: emp._id }).sort({ createdAt: -1 });
 
-    const pending  = leaves.filter((l) => l.status === 'Pending').length;
-    const approved = leaves.filter((l) => l.status === 'Approved').length;
-    const rejected = leaves.filter((l) => l.status === 'Rejected').length;
+    const pending  = leaves.filter((l) => l.get('status') === 'Pending').length;
+    const approved = leaves.filter((l) => l.get('status') === 'Approved').length;
+    const rejected = leaves.filter((l) => l.get('status') === 'Rejected').length;
 
-    // Leave balance (fixed quota - approved days used)
-    const usedCasual  = leaves.filter((l) => l.leaveType === 'Casual'  && l.status === 'Approved').reduce((s, l) => s + l.days, 0);
-    const usedSick    = leaves.filter((l) => l.leaveType === 'Sick'    && l.status === 'Approved').reduce((s, l) => s + l.days, 0);
-    const usedEarned  = leaves.filter((l) => l.leaveType === 'Earned'  && l.status === 'Approved').reduce((s, l) => s + l.days, 0);
+    const usedCasual = leaves.filter((l) => l.get('leaveType') === 'Casual'  && l.get('status') === 'Approved').reduce((s, l) => s + l.get('days'), 0);
+    const usedSick   = leaves.filter((l) => l.get('leaveType') === 'Sick'    && l.get('status') === 'Approved').reduce((s, l) => s + l.get('days'), 0);
+    const usedEarned = leaves.filter((l) => l.get('leaveType') === 'Earned'  && l.get('status') === 'Approved').reduce((s, l) => s + l.get('days'), 0);
 
     res.json({
       leaves,
       stats: { pending, approved, rejected, total: leaves.length },
       balance: [
-        { type: 'Casual Leave',  total: 12, used: usedCasual,  remaining: Math.max(0, 12 - usedCasual)  },
-        { type: 'Sick Leave',    total: 10, used: usedSick,    remaining: Math.max(0, 10 - usedSick)    },
-        { type: 'Earned Leave',  total: 15, used: usedEarned,  remaining: Math.max(0, 15 - usedEarned)  },
-        { type: 'Optional Leave',total: 3,  used: 0,           remaining: 3                              },
+        { type: 'Casual Leave',   total: 12, used: usedCasual,  remaining: Math.max(0, 12 - usedCasual)  },
+        { type: 'Sick Leave',     total: 10, used: usedSick,    remaining: Math.max(0, 10 - usedSick)    },
+        { type: 'Earned Leave',   total: 15, used: usedEarned,  remaining: Math.max(0, 15 - usedEarned)  },
+        { type: 'Optional Leave', total: 3,  used: 0,           remaining: 3                              },
       ],
     });
   } catch (err) {
@@ -148,7 +132,6 @@ export const getMyLeaves = async (req: AuthRequest, res: Response): Promise<void
   }
 };
 
-// POST /api/employee/leaves
 export const applyLeave = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const emp = await getEmployee(req.user!.userId);
@@ -162,17 +145,15 @@ export const applyLeave = async (req: AuthRequest, res: Response): Promise<void>
     const end   = new Date(endDate);
     const days  = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1);
 
-    const leave = await prisma.leaveRequest.create({
-      data: {
-        employeeId: emp.id,
-        companyId:  emp.companyId,
-        leaveType,
-        startDate:  start,
-        endDate:    end,
-        days,
-        reason,
-        status:     'Pending',
-      },
+    const leave = await LeaveRequest.create({
+      employeeId: emp._id,
+      companyId:  emp.get('companyId'),
+      leaveType,
+      startDate:  start,
+      endDate:    end,
+      days,
+      reason,
+      status:     'Pending',
     });
 
     res.status(201).json(leave);
@@ -182,17 +163,12 @@ export const applyLeave = async (req: AuthRequest, res: Response): Promise<void>
   }
 };
 
-// GET /api/employee/payslips
 export const getMyPayslips = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const emp = await getEmployee(req.user!.userId);
     if (!emp) { res.status(404).json({ message: 'Employee not found' }); return; }
 
-    const payslips = await prisma.payslip.findMany({
-      where: { employeeId: emp.id },
-      orderBy: [{ year: 'desc' }, { month: 'desc' }],
-    });
-
+    const payslips = await Payslip.find({ employeeId: emp._id }).sort({ year: -1, month: -1 });
     res.json(payslips);
   } catch (err) {
     console.error(err);
@@ -200,20 +176,16 @@ export const getMyPayslips = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
-// GET /api/employee/expenses
 export const getMyExpenses = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const emp = await getEmployee(req.user!.userId);
     if (!emp) { res.status(404).json({ message: 'Employee not found' }); return; }
 
-    const expenses = await prisma.expense.findMany({
-      where: { employeeId: emp.id },
-      orderBy: { createdAt: 'desc' },
-    });
+    const expenses = await Expense.find({ employeeId: emp._id }).sort({ createdAt: -1 });
 
-    const pending  = expenses.filter((e) => e.status === 'Pending').length;
-    const approved = expenses.filter((e) => e.status === 'Approved').length;
-    const total    = expenses.reduce((s, e) => s + e.amount, 0);
+    const pending  = expenses.filter((e) => e.get('status') === 'Pending').length;
+    const approved = expenses.filter((e) => e.get('status') === 'Approved').length;
+    const total    = expenses.reduce((s, e) => s + e.get('amount'), 0);
 
     res.json({ expenses, stats: { pending, approved, total } });
   } catch (err) {
@@ -222,7 +194,6 @@ export const getMyExpenses = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
-// POST /api/employee/expenses
 export const submitExpense = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const emp = await getEmployee(req.user!.userId);
@@ -232,15 +203,13 @@ export const submitExpense = async (req: AuthRequest, res: Response): Promise<vo
       category: string; amount: number; description: string;
     };
 
-    const expense = await prisma.expense.create({
-      data: {
-        employeeId:  emp.id,
-        companyId:   emp.companyId,
-        category,
-        amount:      Number(amount),
-        description,
-        status:      'Pending',
-      },
+    const expense = await Expense.create({
+      employeeId:  emp._id,
+      companyId:   emp.get('companyId'),
+      category,
+      amount:      Number(amount),
+      description,
+      status:      'Pending',
     });
 
     res.status(201).json(expense);
@@ -250,17 +219,13 @@ export const submitExpense = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
-// GET /api/employee/documents
 export const getDocuments = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const companyId = req.user?.companyId;
-    const docs = await prisma.document.findMany({
-      where: {
-        companyId: companyId ?? undefined,
-        visibility: { in: ['All Employees', 'Public'] },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const docs = await Document.find({
+      companyId: companyId ?? undefined,
+      visibility: { $in: ['All Employees', 'Public'] },
+    }).sort({ createdAt: -1 });
     res.json(docs);
   } catch (err) {
     console.error(err);

@@ -16,7 +16,6 @@ const EMPLOYEES = [
   { id: 'CON-2024-010', name: 'Meera Iyer',     role: 'Line Supervisor',    type: 'Contract',  ctc: 450000,  revised: 'Jan, 2025' },
 ];
 
-const fmtCTC = (n: number) => `₹${(n / 100000).toFixed(2).replace(/\.?0+$/, '')}L` + ' (' + `₹${(n / 12000).toFixed(0)}k/mo` + ')';
 
 export default function CASalaryStructurePage() {
   const [search,  setSearch]  = useState('');
