@@ -30,3 +30,14 @@ backend/prisma/migrations/migration_lock.toml
 attaendence partnership.pdf
 partnership-agreement.html
 partnership-agreement-v2-original-style.html
+
+
+
+
+
+cd /var/www/vook
+git fetch origin
+git reset --hard origin/main
+cd backend && npm install && npm run build && pm2 restart vook-backend
+cd ../frontend && npm install && npm run build
+pm2 save
