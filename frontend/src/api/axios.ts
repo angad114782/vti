@@ -16,6 +16,10 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    console.error(
+      `[API] ${error.config?.method?.toUpperCase()} ${error.config?.url} failed:`,
+      error.response ? `HTTP ${error.response.status} — ${JSON.stringify(error.response.data)}` : error.message
+    );
     const original = error.config;
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;

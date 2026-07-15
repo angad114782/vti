@@ -33,8 +33,13 @@ export default function LoginPage() {
       else if (user?.role === 'EMPLOYEE') navigate('/employee/dashboard');
       else navigate('/dashboard');
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setError(msg || 'Invalid email or password');
+      console.error('Login failed:', err);
+      const e = err as { response?: { status?: number; data?: { message?: string } }; message?: string };
+      if (!e.response) {
+        setError(`Network/CORS error: ${e.message || 'request could not reach the server'} (check browser console)`);
+      } else {
+        setError(e.response.data?.message || `Login failed (HTTP ${e.response.status})`);
+      }
     }
   };
 

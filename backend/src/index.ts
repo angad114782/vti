@@ -106,7 +106,11 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 // ── Start ────────────────────────────────────────────────────────
 connectDB().then(() => {
   const server = app.listen(PORT, () => {
+    const mongoHost = (process.env.MONGODB_URI || '').replace(/\/\/.*@/, '//<redacted>@');
     console.log(`[${isProd ? 'PROD' : 'DEV'}] Server running on http://localhost:${PORT}`);
+    console.log(`[BOOT] CLIENT_URL (CORS origin) = ${process.env.CLIENT_URL || '(not set, defaulting to http://localhost:5173)'}`);
+    console.log(`[BOOT] MONGODB_URI = ${mongoHost}`);
+    console.log(`[BOOT] Connected DB name = ${mongoose.connection.name}`);
   });
 
   // Graceful shutdown

@@ -25,3 +25,8 @@ npm-debug.log*
 
 # Prisma
 backend/prisma/migrations/migration_lock.toml
+
+# Misc
+attaendence partnership.pdf
+partnership-agreement.html
+partnership-agreement-v2-original-style.html
