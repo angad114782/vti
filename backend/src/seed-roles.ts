@@ -31,7 +31,8 @@ async function seedRoles() {
   const companyId = company._id;
   const pass = await bcrypt.hash('Test@123', 10);
 
-  const roles = [
+  type RoleName = 'COMPANY_ADMIN' | 'HR' | 'SUPERVISOR' | 'MANAGER' | 'FINANCE' | 'EMPLOYEE';
+  const roles: { email: string; name: string; role: RoleName }[] = [
     { email: 'company.admin@demo.com', name: 'Company Admin', role: 'COMPANY_ADMIN' },
     { email: 'hr@demo.com',            name: 'HR Manager',    role: 'HR' },
     { email: 'supervisor@demo.com',    name: 'Supervisor',    role: 'SUPERVISOR' },

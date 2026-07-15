@@ -48,7 +48,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       ipAddress: req.ip,
     });
 
-    const company = user.get('companyId');
+    const company = user.get('companyId') as { _id: { toString(): string }; name: string } | null;
     res.json({
       accessToken,
       refreshToken,
