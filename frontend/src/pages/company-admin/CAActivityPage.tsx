@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
-import { caApi, type CALog } from '../../api/companyAdmin';
+import { useState } from 'react';
+import { type CALog } from '../../api/companyAdmin';
 import { Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import PaginationBar from '../../components/data/Pagination';
+import { useCaActivity } from '../../hooks/queries/useCaQueries';
 
 const STATUS_META: Record<string, { bg: string; color: string; icon: typeof CheckCircle2 }> = {
   Success: { bg: '#f0fdf4', color: '#15803d', icon: CheckCircle2 },
@@ -16,15 +18,18 @@ const ROLE_COLORS: Record<string, string> = {
 const fmtTime = (d: string) => new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 export default function CAActivityPage() {
-  const [logs,    setLogs]    = useState<CALog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter,  setFilter]  = useState<'All' | 'Success' | 'Failed'>('All');
+  const [filter, setFilter] = useState<'All' | 'Success' | 'Failed'>('All');
+  const [page,   setPage]   = useState(1);
+  const limit = 20;
 
-  useEffect(() => {
-    caApi.getActivity().then(({ data }) => setLogs(data)).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  const params: Record<string, string> = { page: String(page), limit: String(limit) };
+  if (filter !== 'All') params.status = filter;
 
-  const filtered = filter === 'All' ? logs : logs.filter((l) => l.status === filter);
+  const { data, isLoading: loading } = useCaActivity(params);
+  const logs       = (data?.logs ?? []) as CALog[];
+  const pagination = data?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
+
+  const handleFilter = (f: 'All' | 'Success' | 'Failed') => { setFilter(f); setPage(1); };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -35,7 +40,7 @@ export default function CAActivityPage() {
         </div>
         <div style={{ display: 'flex', gap: '4px' }}>
           {(['All', 'Success', 'Failed'] as const).map((f) => (
-            <button key={f} onClick={() => setFilter(f)} style={{ padding: '7px 14px', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, fontFamily: 'Inter, sans-serif', backgroundColor: filter === f ? '#6366f1' : '#f1f5f9', color: filter === f ? 'white' : '#64748b', transition: 'all 0.15s' }}>{f}</button>
+            <button key={f} onClick={() => handleFilter(f)} style={{ padding: '7px 14px', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '12px', fontWeight: 600, fontFamily: 'Inter, sans-serif', backgroundColor: filter === f ? '#6366f1' : '#f1f5f9', color: filter === f ? 'white' : '#64748b', transition: 'all 0.15s' }}>{f}</button>
           ))}
         </div>
       </div>
@@ -53,12 +58,12 @@ export default function CAActivityPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((log, i) => {
+              {logs.map((log, i) => {
                 const sm = STATUS_META[log.status] ?? STATUS_META['Success']!;
                 const Icon = sm.icon;
                 const roleColor = ROLE_COLORS[log.user?.role ?? ''] ?? '#94a3b8';
                 return (
-                  <tr key={log.id} style={{ borderBottom: i < filtered.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                  <tr key={log.id} style={{ borderBottom: i < logs.length - 1 ? '1px solid #f8fafc' : 'none' }}>
                     <td style={{ padding: '11px 16px' }}><span style={{ fontSize: '13px', fontWeight: 500, color: '#0f172a' }}>{log.action}</span></td>
                     <td style={{ padding: '11px 16px' }}><span style={{ fontSize: '12px', color: '#64748b' }}>{log.module ?? '—'}</span></td>
                     <td style={{ padding: '11px 16px' }}><span style={{ fontSize: '12px', fontWeight: 600, color: '#374151' }}>{log.user?.name ?? 'System'}</span></td>
@@ -73,11 +78,13 @@ export default function CAActivityPage() {
                   </tr>
                 );
               })}
-              {filtered.length === 0 && <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>No activity logs found</td></tr>}
+              {logs.length === 0 && <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>No activity logs found</td></tr>}
             </tbody>
           </table>
         )}
       </div>
+
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => setPage(p)} />
     </div>
   );
 }

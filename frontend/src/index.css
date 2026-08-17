@@ -22,3 +22,9 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+.recharts-wrapper,
+.recharts-wrapper svg,
+.recharts-wrapper *:focus {
+  outline: none !important;
+}

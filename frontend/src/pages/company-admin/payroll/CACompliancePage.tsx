@@ -65,6 +65,11 @@ export default function CACompliancePage() {
   // TDS
   const [tdsEnabled,  setTdsEnabled]  = useState(true);
   const [tdsEmpType,  setTdsEmpType]  = useState('All Employees');
+  const [saveMsg, setSaveMsg] = useState('');
+
+  const handleSave = () => {
+    setSaveMsg('Draft saved locally for this session. Backend persistence is still pending.');
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -73,9 +78,13 @@ export default function CACompliancePage() {
           <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>Statutory Configuration</h1>
           <p style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>Select the parameters for this payroll cycle.</p>
         </div>
-        <button style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '9px 18px', backgroundColor: '#0d7470', color: 'white', border: 'none', borderRadius: '9px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+        <button onClick={handleSave} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '9px 18px', backgroundColor: '#0d7470', color: 'white', border: 'none', borderRadius: '9px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
           💾 Save Changes
         </button>
+      </div>
+      <div style={{ backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px', padding: '12px 14px' }}>
+        <p style={{ fontSize: '12px', color: '#92400e', fontWeight: 600 }}>Compliance configuration is still a draft UI. Live backend persistence has not been built yet.</p>
+        {saveMsg && <p style={{ fontSize: '12px', color: '#a16207', marginTop: '6px' }}>{saveMsg}</p>}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>

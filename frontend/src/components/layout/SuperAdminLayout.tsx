@@ -2,6 +2,7 @@ import { Outlet, Navigate } from 'react-router-dom';
 import SuperAdminSidebar from './SuperAdminSidebar';
 import TopBar from './TopBar';
 import { useAuthStore } from '../../store/authStore';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 export default function SuperAdminLayout() {
   const { user } = useAuthStore();
@@ -20,7 +21,7 @@ export default function SuperAdminLayout() {
           padding: '28px 28px',
           backgroundColor: '#f8fafc',
         }}>
-          <Outlet />
+          <ErrorBoundary><Outlet /></ErrorBoundary>
         </main>
       </div>
     </div>

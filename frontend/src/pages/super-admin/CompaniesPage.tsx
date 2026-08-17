@@ -1,5 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { companiesApi, type Company, type CreateCompanyData } from '../../api/companies';
+import { type PlanData } from '../../api/subscriptions';
+import { extractError } from '../../utils/errorUtils';
+import { getPlanBadge } from '../../utils/planColors';
+import { useSaCompanies, useSaPlans } from '../../hooks/queries/useSaQueries';
+import { useDeleteCompany } from '../../hooks/mutations/useSaMutations';
 import {
   Building2, TrendingUp, Clock, AlertTriangle, Search,
   Eye, Pencil, Trash2, X, Loader2, ChevronLeft, ChevronRight, Plus,
@@ -11,11 +17,6 @@ import {
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-const planMeta: Record<string, { label: string; bg: string; color: string; border: string }> = {
-  ENTERPRISE: { label: 'Enterprise', bg: '#ede9fe', color: '#6d28d9', border: '#ddd6fe' },
-  PRO:        { label: 'Pro',        bg: '#dbeafe', color: '#1d4ed8', border: '#bfdbfe' },
-  BASIC:      { label: 'Basic',      bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' },
-};
 const quickActions = [
   { icon: Download, label: 'Download Payroll' },
   { icon: Shield, label: 'Manage Roles' },
@@ -54,10 +55,10 @@ const fmtDate = (dateStr?: string) => {
 interface ModalProps {
   company?: Company | null;
   onClose: () => void;
-  onSave: () => void;
+  onSave: (adminCreds?: { email: string; password: string }) => void;
 }
 
-function CompanyModal({ company, onClose, onSave }: ModalProps) {
+function CompanyModal({ company, plans, onClose, onSave }: ModalProps & { plans: PlanData[] }) {
   const isEdit = !!company;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -67,10 +68,11 @@ function CompanyModal({ company, onClose, onSave }: ModalProps) {
     email: company?.email ?? '',
     phone: company?.phone ?? '',
     address: company?.address ?? '',
-    plan: company?.plan ?? 'BASIC',
+    plan: company?.plan ?? (plans[0]?.type ?? ''),
     status: company?.status ?? 'TRIAL',
     maxUsers: company?.maxUsers ?? 100,
     planExpiry: company?.planExpiry ? company.planExpiry.slice(0, 10) : '',
+    ...(!isEdit ? { adminName: '', adminEmail: '', adminPassword: '' } : {}),
   });
 
   const set = (k: keyof CreateCompanyData, v: string | number) =>
@@ -79,13 +81,25 @@ function CompanyModal({ company, onClose, onSave }: ModalProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) { setError('Company name is required'); return; }
+    if (!isEdit) {
+      if (!form.adminName?.trim()) { setError('Admin name is required'); return; }
+      if (!form.adminEmail?.trim()) { setError('Admin email is required'); return; }
+    }
     setSaving(true); setError('');
     try {
-      if (isEdit && company) await companiesApi.update(company.id, form);
-      else await companiesApi.create(form);
-      onSave();
-    } catch {
-      setError('Something went wrong. Please try again.');
+      if (isEdit && company) {
+        await companiesApi.update(company.id, form);
+        onSave();
+      } else {
+        const res = await companiesApi.create(form);
+        onSave(
+          res.data.adminGeneratedPassword
+            ? { email: form.adminEmail!, password: res.data.adminGeneratedPassword }
+            : undefined
+        );
+      }
+    } catch (err) {
+      setError(extractError(err, 'Failed to save company'));
     } finally {
       setSaving(false);
     }
@@ -159,14 +173,39 @@ function CompanyModal({ company, onClose, onSave }: ModalProps) {
             <input style={inputStyle} value={form.address} onChange={(e) => set('address', e.target.value)} placeholder="Full address" />
           </div>
 
+          {/* Admin Credentials — create only */}
+          {!isEdit && (
+            <>
+              <div style={{ padding: '10px 14px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px' }}>
+                <p style={{ fontSize: '12px', fontWeight: 700, color: '#15803d', marginBottom: '2px' }}>Initial Admin Account</p>
+                <p style={{ fontSize: '11px', color: '#166534' }}>This person will be the Company Admin for this company.</p>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                <div>
+                  <label style={labelStyle}>Admin Name *</label>
+                  <input style={inputStyle} value={form.adminName ?? ''} onChange={(e) => set('adminName', e.target.value)} placeholder="e.g. John Smith" />
+                </div>
+                <div>
+                  <label style={labelStyle}>Admin Email *</label>
+                  <input type="email" style={inputStyle} value={form.adminEmail ?? ''} onChange={(e) => set('adminEmail', e.target.value)} placeholder="admin@company.com" />
+                </div>
+              </div>
+              <div>
+                <label style={labelStyle}>Admin Password</label>
+                <input type="password" style={inputStyle} value={form.adminPassword ?? ''} onChange={(e) => set('adminPassword', e.target.value)} placeholder="Leave blank to auto-generate" autoComplete="new-password" />
+                <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>If left blank, a secure password will be generated and shown once after creation.</p>
+              </div>
+            </>
+          )}
+
           {/* Plan + Status */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
             <div>
               <label style={labelStyle}>Plan</label>
               <select style={{ ...inputStyle, cursor: 'pointer' }} value={form.plan} onChange={(e) => set('plan', e.target.value)}>
-                <option value="BASIC">Basic — ₹1,999/mo</option>
-                <option value="PRO">Pro — ₹3,999/mo</option>
-                <option value="ENTERPRISE">Enterprise — ₹7,999/mo</option>
+                {plans.map((p) => (
+                  <option key={p.type} value={p.type}>{p.name} — ₹{p.price.toLocaleString('en-IN')}/mo</option>
+                ))}
               </select>
             </div>
             <div>
@@ -219,9 +258,9 @@ function CompanyModal({ company, onClose, onSave }: ModalProps) {
 
 // ─── View Modal ──────────────────────────────────────────────────────────────
 
-function ViewModal({ company, onClose, onEdit }: { company: Company; onClose: () => void; onEdit: () => void }) {
+function ViewModal({ company, plans, onClose, onEdit }: { company: Company; plans: PlanData[]; onClose: () => void; onEdit: () => void }) {
   const av = getAvatarColor(company.name);
-  const pm = planMeta[company.plan];
+  const pm = getPlanBadge(company.plan, plans);
   const sm = statusMeta[company.status];
   const row = (label: string, value: string) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #f8fafc' }}>
@@ -269,43 +308,89 @@ function ViewModal({ company, onClose, onEdit }: { company: Company; onClose: ()
   );
 }
 
+// ─── Generated Password Disclosure Modal ─────────────────────────────────────
+
+function GeneratedPasswordModal({ email, password, onClose }: { email: string; password: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(password).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '24px' }}>
+      <div style={{ backgroundColor: 'white', borderRadius: '16px', width: '100%', maxWidth: '440px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
+        <div style={{ padding: '20px 24px', background: 'linear-gradient(135deg, #14532d, #15803d)' }}>
+          <h2 style={{ color: 'white', fontSize: '16px', fontWeight: 700 }}>Company Created Successfully</h2>
+          <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: '12px', marginTop: '4px' }}>Save the admin credentials below — the password will not be shown again.</p>
+        </div>
+        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ padding: '14px 16px', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+            <p style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>Admin Email</p>
+            <p style={{ fontSize: '14px', fontWeight: 600, color: '#0f172a' }}>{email}</p>
+          </div>
+          <div style={{ padding: '14px 16px', backgroundColor: '#fefce8', borderRadius: '10px', border: '1px solid #fde047' }}>
+            <p style={{ fontSize: '11px', fontWeight: 700, color: '#a16207', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>Generated Password</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <code style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', flex: 1, wordBreak: 'break-all', fontFamily: 'monospace' }}>{password}</code>
+              <button
+                onClick={handleCopy}
+                style={{ padding: '6px 14px', border: '1.5px solid #e2e8f0', borderRadius: '7px', backgroundColor: copied ? '#f0fdf4' : 'white', fontSize: '12px', fontWeight: 600, cursor: 'pointer', color: copied ? '#15803d' : '#374151', whiteSpace: 'nowrap', fontFamily: 'Inter, sans-serif' }}
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          </div>
+          <p style={{ fontSize: '12px', color: '#dc2626', fontWeight: 500 }}>
+            Share this password securely with the company admin. It will not be displayed again.
+          </p>
+          <button
+            onClick={onClose}
+            style={{ padding: '10px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}
+          >
+            I have saved the password
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function CompaniesPage() {
-  const [companies, setCompanies] = useState<Company[]>([]);
-  const [stats, setStats] = useState({ total: 0, active: 0, trial: 0, expiringSoon: 0 });
-  const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [planFilter, setPlanFilter] = useState('ALL');
+  const qc = useQueryClient();
+  const [search,      setSearch]      = useState('');
+  const [planFilter,  setPlanFilter]  = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [modal, setModal] = useState<'add' | 'edit' | 'view' | null>(null);
-  const [selected, setSelected] = useState<Company | null>(null);
+  const [modal,       setModal]       = useState<'add' | 'edit' | 'view' | null>(null);
+  const [selected,    setSelected]    = useState<Company | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<Company | null>(null);
-  const [page, setPage] = useState(1);
+  const [page,        setPage]        = useState(1);
+  const [generatedAdminCreds, setGeneratedAdminCreds] = useState<{ email: string; password: string } | null>(null);
 
-  const fetchCompanies = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = { page: String(page), limit: '8' };
-      if (search) params.search = search;
-      if (planFilter !== 'ALL') params.plan = planFilter;
-      if (statusFilter !== 'ALL') params.status = statusFilter;
-      const { data } = await companiesApi.getAll(params);
-      setCompanies(data.companies);
-      setStats(data.stats);
-      setPagination(data.pagination);
-    } catch { /* ignore */ }
-    finally { setLoading(false); }
-  }, [search, planFilter, statusFilter, page]);
+  const params: Record<string, string> = { page: String(page), limit: '8' };
+  if (search) params.search = search;
+  if (planFilter !== 'ALL') params.plan = planFilter;
+  if (statusFilter !== 'ALL') params.status = statusFilter;
 
-  useEffect(() => { void fetchCompanies(); }, [fetchCompanies]);
+  const { data: compData, isLoading: loading } = useSaCompanies(params);
+  const { data: plans = [] } = useSaPlans();
+  const deleteCompany = useDeleteCompany();
 
-  const handleDelete = async () => {
+  const companies  = (compData?.companies  ?? []) as Company[];
+  const stats      = compData?.stats       ?? { total: 0, active: 0, trial: 0, expiringSoon: 0 };
+  const pagination = compData?.pagination  ?? { total: 0, page: 1, totalPages: 1 };
+
+  const handleDelete = () => {
     if (!deleteConfirm) return;
-    await companiesApi.delete(deleteConfirm.id);
-    setDeleteConfirm(null);
-    void fetchCompanies();
+    deleteCompany.mutate(deleteConfirm.id, {
+      onSuccess: () => setDeleteConfirm(null),
+      onError: () => setDeleteConfirm(null),
+    });
   };
 
   const statsRow = [
@@ -374,9 +459,9 @@ export default function CompaniesPage() {
           </div>
           <select value={planFilter} onChange={(e) => { setPlanFilter(e.target.value); setPage(1); }} style={selectStyle}>
             <option value="ALL">All Plans</option>
-            <option value="BASIC">Basic</option>
-            <option value="PRO">Pro</option>
-            <option value="ENTERPRISE">Enterprise</option>
+            {plans.map((p) => (
+              <option key={p.type} value={p.type}>{p.name}</option>
+            ))}
           </select>
           <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} style={selectStyle}>
             <option value="ALL">All Status</option>
@@ -412,11 +497,11 @@ export default function CompaniesPage() {
               <tbody>
                 {companies.map((c, i) => {
                   const av = getAvatarColor(c.name);
-                  const pm = planMeta[c.plan];
+                  const pm = getPlanBadge(c.plan, plans);
                   const sm = statusMeta[c.status];
                   const expWarn = isExpiringSoon(c.planExpiry);
                   return (
-                    <tr key={c.id} style={{ borderBottom: i < companies.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                    <tr key={c.id} onClick={() => { setSelected(c); setModal('view'); }} style={{ borderBottom: i < companies.length - 1 ? '1px solid #f8fafc' : 'none', cursor: 'pointer' }}>
                       <td style={{ padding: '13px 20px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '11px' }}>
                           <div style={{ width: '36px', height: '36px', borderRadius: '10px', backgroundColor: av.bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: av.color, fontWeight: 700, fontSize: '12px' }}>
@@ -444,9 +529,8 @@ export default function CompaniesPage() {
                       <td style={{ padding: '13px 20px', fontSize: '13px', color: '#64748b', whiteSpace: 'nowrap' }}>{fmtDate(c.createdAt)}</td>
                       <td style={{ padding: '13px 20px' }}>
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          <button onClick={() => { setSelected(c); setModal('view'); }} title="View" style={{ width: '30px', height: '30px', border: '1px solid #e2e8f0', borderRadius: '7px', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}><Eye size={14} /></button>
-                          <button onClick={() => { setSelected(c); setModal('edit'); }} title="Edit" style={{ width: '30px', height: '30px', border: '1px solid #e2e8f0', borderRadius: '7px', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}><Pencil size={14} /></button>
-                          <button onClick={() => setDeleteConfirm(c)} title="Delete" style={{ width: '30px', height: '30px', border: '1px solid #fee2e2', borderRadius: '7px', backgroundColor: '#fef2f2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}><Trash2 size={14} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); setSelected(c); setModal('edit'); }} title="Edit" style={{ width: '30px', height: '30px', border: '1px solid #e2e8f0', borderRadius: '7px', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}><Pencil size={14} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(c); }} title="Delete" style={{ width: '30px', height: '30px', border: '1px solid #fee2e2', borderRadius: '7px', backgroundColor: '#fef2f2', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}><Trash2 size={14} /></button>
                         </div>
                       </td>
                     </tr>
@@ -478,14 +562,20 @@ export default function CompaniesPage() {
       {(modal === 'add' || modal === 'edit') && (
         <CompanyModal
           company={modal === 'edit' ? selected : null}
+          plans={plans}
           onClose={() => setModal(null)}
-          onSave={() => { setModal(null); void fetchCompanies(); }}
+          onSave={(adminCreds) => {
+            setModal(null);
+            void qc.invalidateQueries({ queryKey: ['sa', 'companies'] });
+            if (adminCreds) setGeneratedAdminCreds(adminCreds);
+          }}
         />
       )}
 
       {modal === 'view' && selected && (
         <ViewModal
           company={selected}
+          plans={plans}
           onClose={() => setModal(null)}
           onEdit={() => setModal('edit')}
         />
@@ -498,20 +588,28 @@ export default function CompaniesPage() {
             <div style={{ width: '44px', height: '44px', borderRadius: '12px', backgroundColor: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '16px' }}>
               <Trash2 size={20} color="#dc2626" />
             </div>
-            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '6px' }}>Delete Company?</h3>
+            <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', marginBottom: '6px' }}>Archive Company?</h3>
             <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>
-              Are you sure you want to delete <strong>{deleteConfirm.name}</strong>? This action cannot be undone.
+              Are you sure you want to archive <strong>{deleteConfirm.name}</strong>? The company will be hidden from all lists and its subscription deactivated. Data is preserved and not permanently deleted.
             </p>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button onClick={() => setDeleteConfirm(null)} style={{ padding: '8px 18px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: '#374151', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
-              <button onClick={handleDelete} style={{ padding: '8px 18px', backgroundColor: '#dc2626', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Delete</button>
+              <button onClick={handleDelete} style={{ padding: '8px 18px', backgroundColor: '#dc2626', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Archive</button>
             </div>
           </div>
         </div>
       )}
 
 
-        {/* Quick Actions */}
+        {generatedAdminCreds && (
+        <GeneratedPasswordModal
+          email={generatedAdminCreds.email}
+          password={generatedAdminCreds.password}
+          onClose={() => setGeneratedAdminCreds(null)}
+        />
+      )}
+
+      {/* Quick Actions */}
       <div style={{
         backgroundColor: 'white', borderRadius: '12px',
         border: '1px solid #e2e8f0', padding: '18px 22px',

@@ -1,4 +1,5 @@
 import api from './axios';
+import type { Pagination } from './hr';
 
 export interface AttendanceRecord {
   date: string; day: string; status: string;
@@ -16,26 +17,43 @@ export interface MyLeave {
 
 export interface MyPayslip {
   id: string; payslipId: string; period: string; month: number; year: number;
-  netPay: number; status: string; createdAt: string;
+  grossSalary: number; totalDeductions: number; netPay: number; status: string; createdAt: string;
 }
 
 export interface MyExpense {
   id: string; category: string; amount: number;
   description: string | null; status: string; createdAt: string;
+  receiptUrl?: string | null;
 }
 
 export interface MyDocument {
   id: string; name: string; category: string; fileSize: string | null;
   version: string | null; visibility: string; uploadedBy: string; createdAt: string;
+  fileUrl?: string | null;
+}
+
+export interface TodayAttendance {
+  id: string; date: string; checkIn: string | null; checkOut: string | null; status: string;
 }
 
 export const employeeApi = {
-  getProfile:    () => api.get('/employee/profile'),
-  getAttendance: (p?: Record<string, string>) => api.get<{ records: AttendanceRecord[]; stats: { present: number; late: number; absent: number; totalHours: number; workingDays: number } }>('/employee/attendance', { params: p }),
-  getLeaves:     () => api.get<{ leaves: MyLeave[]; stats: Record<string, number>; balance: LeaveBalance[] }>('/employee/leaves'),
+  getProfile:          () => api.get('/employee/profile'),
+  getAttendance:       (p?: Record<string, string>) => api.get<{ records: AttendanceRecord[]; stats: { present: number; late: number; absent: number; totalHours: number; workingDays: number } }>('/employee/attendance', { params: p }),
+  getTodayAttendance:  () => api.get<{ record: TodayAttendance | null }>('/employee/attendance/today'),
+  checkIn:             () => api.post<{ message: string; record: TodayAttendance }>('/employee/attendance/checkin'),
+  checkOut:            () => api.post<{ message: string; record: TodayAttendance }>('/employee/attendance/checkout'),
+  getLeaves:           () => api.get<{ leaves: MyLeave[]; stats: Record<string, number>; balance: LeaveBalance[] }>('/employee/leaves'),
   applyLeave:    (data: { leaveType: string; startDate: string; endDate: string; reason: string }) => api.post('/employee/leaves', data),
   getPayslips:   () => api.get<MyPayslip[]>('/employee/payslips'),
   getExpenses:   () => api.get<{ expenses: MyExpense[]; stats: { pending: number; approved: number; total: number } }>('/employee/expenses'),
-  submitExpense: (data: { category: string; amount: number; description: string }) => api.post('/employee/expenses', data),
-  getDocuments:  () => api.get<MyDocument[]>('/employee/documents'),
+  uploadReceiptFile: (file: File) => {
+    const fd = new FormData();
+    fd.append('receipt', file);
+    return api.post<{ fileUrl: string }>('/employee/expenses/upload', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+  },
+  submitExpense: (data: { category: string; amount: number; description: string; receiptUrl?: string }) => api.post('/employee/expenses', data),
+  getDocuments:  (p?: Record<string, string>) => api.get<{ documents: MyDocument[]; pagination: Pagination }>('/employee/documents', { params: p }),
+  updateProfile: (data: { name?: string; email?: string }) => api.patch<{ name: string; email: string }>('/employee/profile', data),
 };

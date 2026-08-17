@@ -9,6 +9,9 @@ const salaryStructureSchema = new Schema({
   lastRevised: { type: Date, required: true },
 }, { timestamps: true });
 
+salaryStructureSchema.index({ companyId: 1 });
+salaryStructureSchema.index({ employeeId: 1, createdAt: -1 });
+
 salaryStructureSchema.set('toJSON', {
   virtuals: true,
   transform: (_doc: unknown, ret: any) => {

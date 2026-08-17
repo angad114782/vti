@@ -1,6 +1,9 @@
 import { useState } from 'react';
-import { Save, Shield, Bell, User, Loader2, CheckCircle2, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { Save, Shield, Bell, User, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import api from '../../api/axios';
+import { extractError } from '../../utils/errorUtils';
 
 type Tab = 'profile' | 'notifications' | 'security';
 
@@ -12,22 +15,13 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
   );
 }
 
-function Toast({ message, onClose }: { message: string; onClose: () => void }) {
-  return (
-    <div style={{ position: 'fixed', bottom: '28px', right: '28px', zIndex: 1100, display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 18px', borderRadius: '10px', backgroundColor: '#0d7470', color: 'white', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', fontSize: '13px', fontWeight: 600 }}>
-      <CheckCircle2 size={16} /> {message}
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)', marginLeft: '4px' }}><X size={14} /></button>
-    </div>
-  );
-}
 
 const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#0f172a', backgroundColor: 'white' };
 const labelStyle: React.CSSProperties = { fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' };
 
 export default function HRSettingsPage() {
-  const { user } = useAuthStore();
+  const { user, setUser } = useAuthStore();
   const [tab, setTab] = useState<Tab>('profile');
-  const [toast, setToast] = useState('');
   const [saving, setSaving] = useState(false);
 
   const [profile, setProfile] = useState({ name: user?.name ?? '', email: user?.email ?? '', phone: '', department: 'Human Resources' });
@@ -36,10 +30,15 @@ export default function HRSettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 700));
-    setSaving(false);
-    setToast('Settings saved successfully');
-    setTimeout(() => setToast(''), 3000);
+    try {
+      await api.patch('/auth/me', { name: profile.name, email: profile.email });
+      setUser({ name: profile.name, email: profile.email });
+      toast.success('Settings saved successfully');
+    } catch (err) {
+      toast.error(extractError(err, 'Failed to save settings'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const TABS: { key: Tab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
@@ -129,7 +128,6 @@ export default function HRSettingsPage() {
         </div>
       )}
 
-      {toast && <Toast message={toast} onClose={() => setToast('')} />}
     </div>
   );
 }

@@ -1,0 +1,215 @@
+import { z, ZodSchema } from 'zod';
+import { Request, Response, NextFunction } from 'express';
+import { AppError } from '../core/AppError';
+
+/** Rejects non-ObjectId strings before they reach Mongoose. */
+export const objectIdSchema = z.string().regex(/^[a-f\d]{24}$/i, 'Invalid ID format');
+
+export function validateId(id: string): void {
+  const result = objectIdSchema.safeParse(id);
+  if (!result.success) throw new AppError('VALIDATION_ERROR', 'Invalid ID format', 400);
+}
+
+/** Middleware factory — parses req.body against a zod schema, rejects with 400 on failure. */
+export function validateBody<T extends ZodSchema>(schema: T) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      res.status(400).json({ message: 'Validation error', errors: result.error.flatten().fieldErrors });
+      return;
+    }
+    req.body = result.data;
+    next();
+  };
+}
+
+// ── Auth ────────────────────────────────────────────────────────────────────
+export const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+
+// ── Employee Profile ─────────────────────────────────────────────────────────
+export const updateProfileSchema = z.object({
+  name:  z.string().min(1, 'Name is required').optional(),
+  email: z.string().email('Invalid email').optional(),
+});
+
+// ── Companies ────────────────────────────────────────────────────────────────
+const planEnum = z.string().min(1);
+const companyStatusEnum = z.enum(['ACTIVE', 'TRIAL', 'EXPIRED', 'SUSPENDED']);
+
+export const createCompanySchema = z.object({
+  name: z.string().min(1),
+  industry: z.string().optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  phone: z.string().optional(),
+  address: z.string().optional(),
+  plan: planEnum.optional(),
+  status: companyStatusEnum.optional(),
+  maxUsers: z.coerce.number().int().min(1).max(10000).optional(),
+  planExpiry: z.string().datetime({ offset: true }).optional().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)).optional(),
+  adminName: z.string().min(1, 'Admin name is required'),
+  adminEmail: z.string().email('Admin email must be valid'),
+  adminPassword: z.string().min(8).optional(),
+});
+
+export const updateCompanySchema = createCompanySchema.partial();
+
+// ── Employees ────────────────────────────────────────────────────────────────
+export const createEmployeeSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  department: z.string().optional(),
+  designation: z.string().optional(),
+  shiftType: z.string().optional(),
+  shiftTiming: z.string().optional(),
+  joiningDate: z.string().optional(),
+  annualCtc: z.coerce.number().min(0).optional(),
+  employmentType: z.string().optional(),
+  bankName: z.string().optional(),
+  branchName: z.string().optional(),
+  accountHolder: z.string().optional(),
+});
+
+export const updateEmployeeSchema = z.object({
+  department: z.string().optional(),
+  designation: z.string().optional(),
+  shiftType: z.string().optional(),
+  shiftTiming: z.string().optional(),
+  annualCtc: z.coerce.number().min(0).optional(),
+  status: z.enum(['Active', 'Inactive']).optional(),
+  bankName: z.string().optional(),
+  branchName: z.string().optional(),
+  accountHolder: z.string().optional(),
+});
+
+// ── Leaves / Approvals ───────────────────────────────────────────────────────
+const leaveStatusEnum = z.enum(['Pending', 'Approved', 'Rejected']);
+const approvalStatusEnum = z.enum(['Pending', 'Approved', 'Rejected']);
+
+export const applyLeaveSchema = z.object({
+  leaveType: z.string().min(1),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'startDate must be YYYY-MM-DD'),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'endDate must be YYYY-MM-DD'),
+  reason: z.string().optional(),
+});
+
+export const updateLeaveStatusSchema = z.object({
+  status: leaveStatusEnum,
+});
+
+export const updateApprovalSchema = z.object({
+  status: approvalStatusEnum,
+});
+
+// ── Expenses ─────────────────────────────────────────────────────────────────
+export const submitExpenseSchema = z.object({
+  category: z.string().min(1),
+  amount: z.coerce.number().positive(),
+  description: z.string().optional(),
+  receiptUrl: z.string().optional(),
+});
+
+export const updateExpenseSchema = z.object({
+  status: z.enum(['Pending', 'Approved', 'Rejected']),
+});
+
+// ── Documents ────────────────────────────────────────────────────────────────
+export const createDocumentSchema = z.object({
+  name: z.string().min(1),
+  category: z.string().min(1),
+  visibility: z.string().optional(),
+  version: z.string().optional(),
+  fileSize: z.string().optional(),
+  fileUrl: z.string().optional(),
+});
+
+// ── Attendance ───────────────────────────────────────────────────────────────
+export const createAttendanceSchema = z.object({
+  employeeId: z.string().min(1),
+  date:       z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'date must be YYYY-MM-DD'),
+  checkIn:    z.string().regex(/^\d{2}:\d{2}$/, 'checkIn must be HH:MM').optional(),
+  checkOut:   z.string().regex(/^\d{2}:\d{2}$/, 'checkOut must be HH:MM').optional(),
+  status:     z.enum(['Present', 'Late', 'Absent', 'Leave', 'Holiday']),
+  notes:      z.string().optional(),
+});
+
+// ── Company-Admin Users ──────────────────────────────────────────────────────
+const userRoleEnum = z.enum(['COMPANY_ADMIN', 'HR', 'SUPERVISOR', 'MANAGER', 'FINANCE', 'EMPLOYEE']);
+
+export const createUserSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  role: userRoleEnum,
+  password: z.string().min(8).optional(),
+});
+
+export const updateUserSchema = z.object({
+  role: userRoleEnum.optional(),
+  isActive: z.boolean().optional(),
+});
+
+// ── Subscriptions / Plans ────────────────────────────────────────────────────
+export const createPlanSchema = z.object({
+  name: z.string().min(1),
+  type: planEnum,
+  price: z.coerce.number().min(0),
+  maxUsers: z.coerce.number().int().min(1),
+  features: z.array(z.string()).optional(),
+});
+
+export const updatePlanSchema = z.object({
+  name: z.string().optional(),
+  price: z.coerce.number().min(0).optional(),
+  maxUsers: z.coerce.number().int().min(1).optional(),
+  features: z.array(z.string()).optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const assignPlanSchema = z.object({
+  companyId: z.string().min(1),
+  plan: planEnum,
+  billingCycle: z.enum(['Monthly', 'Quarterly', 'Annual']).optional(),
+  months: z.coerce.number().int().min(1).max(36).optional(),
+});
+
+export const updateSubscriptionSchema = z.object({
+  billingCycle: z.enum(['Monthly', 'Quarterly', 'Annual']).optional(),
+  isActive: z.boolean().optional(),
+  endDate: z.string().datetime({ offset: true }).optional().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)).optional(),
+});
+
+// ── Payroll ──────────────────────────────────────────────────────────────────
+export const runPayrollSchema = z.object({
+  month: z.coerce.number().int().min(1).max(12),
+  year: z.coerce.number().int().min(2000).max(2100),
+  employeeIds: z.array(z.string()).optional(),
+});
+
+// ── Shifts ───────────────────────────────────────────────────────────────────
+export const createShiftSchema = z.object({
+  employeeId: z.string().min(1),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'date must be YYYY-MM-DD'),
+  shiftName: z.enum(['Morning', 'Evening', 'Night']),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  notes: z.string().optional(),
+});
+
+export const updateShiftSchema = z.object({
+  shiftName: z.enum(['Morning', 'Evening', 'Night']).optional(),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  status: z.enum(['Assigned', 'Completed', 'Cancelled']).optional(),
+  notes: z.string().optional(),
+});

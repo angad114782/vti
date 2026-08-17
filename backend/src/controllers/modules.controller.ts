@@ -65,6 +65,46 @@ export const getPermissions = async (req: Request, res: Response) => {
   res.json({ role: role ?? null, permissions: grouped });
 };
 
+export const createModule = async (req: Request, res: Response) => {
+  const { name, description, availableFor } = req.body as {
+    name: string; description?: string; availableFor?: string[];
+  };
+  if (!name) { res.status(400).json({ message: 'Name is required' }); return; }
+  const existing = await Module.findOne({ name }).lean();
+  if (existing) { res.status(409).json({ message: 'A module with this name already exists' }); return; }
+  const mod = await Module.create({ name, description, availableFor: availableFor ?? [] });
+  res.status(201).json(mod);
+};
+
+export const updateModule = async (req: Request, res: Response) => {
+  const { id } = req.params as { id: string };
+  const { name, description, availableFor } = req.body as {
+    name?: string; description?: string; availableFor?: string[];
+  };
+  const mod = await Module.findByIdAndUpdate(
+    id,
+    {
+      ...(name ? { name } : {}),
+      ...(description !== undefined ? { description } : {}),
+      ...(availableFor ? { availableFor } : {}),
+    },
+    { new: true },
+  );
+  if (!mod) { res.status(404).json({ message: 'Module not found' }); return; }
+  res.json(mod);
+};
+
+export const deleteModule = async (req: Request, res: Response) => {
+  const { id } = req.params as { id: string };
+  const inUse = await CompanyModule.countDocuments({ moduleId: id });
+  if (inUse > 0) {
+    res.status(409).json({ message: `Cannot delete — this module is assigned to ${inUse} company/companies` });
+    return;
+  }
+  await Module.findByIdAndDelete(id);
+  res.json({ message: 'Module deleted' });
+};
+
 export const updatePermission = async (req: Request, res: Response) => {
   const { role, permission, isGranted } = req.body as {
     role: string;

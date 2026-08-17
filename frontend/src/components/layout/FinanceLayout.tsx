@@ -2,6 +2,7 @@ import { Outlet, Navigate, useNavigate } from 'react-router-dom';
 import { Search, Bell, RefreshCw, ChevronDown } from 'lucide-react';
 import FinanceSidebar from './FinanceSidebar';
 import { useAuthStore } from '../../store/authStore';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 const MONTH = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
 
@@ -46,7 +47,7 @@ export default function FinanceLayout() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <TopBar />
         <div style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
-          <Outlet />
+          <ErrorBoundary><Outlet /></ErrorBoundary>
         </div>
       </div>
     </div>

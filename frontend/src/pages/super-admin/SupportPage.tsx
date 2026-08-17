@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { supportApi, type SupportTicket } from '../../api/support';
+import { useSaSupport } from '../../hooks/queries/useSaQueries';
+import { extractError } from '../../utils/errorUtils';
 import {
   TicketCheck, AlertCircle, Clock, CheckCircle2,
-  Search, Eye, X, ChevronLeft, ChevronRight,
+  Search, X, ChevronLeft, ChevronRight,
   Loader2, Plus, BookOpen, FileText, Users,
   Shield, BarChart3, Download, ChevronDown,
   HelpCircle, Layers, Settings,
@@ -171,7 +174,7 @@ function NewTicketModal({ companies, onClose, onCreated }: {
       await supportApi.create(form);
       onCreated();
       onClose();
-    } catch { setError('Failed to create ticket. Try again.'); }
+    } catch (err) { setError(extractError(err, 'Failed to create ticket')); }
     finally { setLoading(false); }
   };
 
@@ -264,42 +267,34 @@ function NewTicketModal({ companies, onClose, onCreated }: {
 
 // ── Tickets Tab ────────────────────────────────────────────────────────────────
 
-function TicketsTab({ onStatsRefresh }: { onStatsRefresh: () => void }) {
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
-  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
-  const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+function TicketsTab() {
+  const qc = useQueryClient();
+  const [companies,     setCompanies]     = useState<{ id: string; name: string }[]>([]);
+  const [search,        setSearch]        = useState('');
+  const [statusFilter,  setStatusFilter]  = useState('ALL');
   const [priorityFilter, setPriorityFilter] = useState('ALL');
   const [companyFilter, setCompanyFilter] = useState('ALL');
-  const [page, setPage] = useState(1);
-  const [viewTicket, setViewTicket] = useState<SupportTicket | null>(null);
-  const [showNew, setShowNew] = useState(false);
+  const [page,          setPage]          = useState(1);
+  const [viewTicket,    setViewTicket]    = useState<SupportTicket | null>(null);
+  const [showNew,       setShowNew]       = useState(false);
 
-  const fetchTickets = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = { page: String(page), limit: '10' };
-      if (search) params.search = search;
-      if (statusFilter !== 'ALL') params.status = statusFilter;
-      if (priorityFilter !== 'ALL') params.priority = priorityFilter;
-      if (companyFilter !== 'ALL') params.company = companyFilter;
-      const { data } = await supportApi.getAll(params);
-      setTickets(data.tickets);
-      setPagination(data.pagination);
-    } finally { setLoading(false); }
-  }, [search, statusFilter, priorityFilter, companyFilter, page]);
+  const ticketParams: Record<string, string> = { page: String(page), limit: '10' };
+  if (search) ticketParams.search = search;
+  if (statusFilter !== 'ALL') ticketParams.status = statusFilter;
+  if (priorityFilter !== 'ALL') ticketParams.priority = priorityFilter;
+  if (companyFilter !== 'ALL') ticketParams.company = companyFilter;
 
-  useEffect(() => { void fetchTickets(); }, [fetchTickets]);
+  const { data, isLoading: loading } = useSaSupport(ticketParams);
+  const tickets    = (data?.tickets    ?? []) as SupportTicket[];
+  const pagination = data?.pagination  ?? { total: 0, page: 1, totalPages: 1 };
 
   useEffect(() => {
     supportApi.getCompanies().then(({ data }) => setCompanies(data)).catch(() => {});
   }, []);
 
   const handleStatusChange = (id: string, status: string) => {
-    setTickets((prev) => prev.map((t) => t.id === id ? { ...t, status: status as SupportTicket['status'] } : t));
-    onStatsRefresh();
+    void qc.invalidateQueries({ queryKey: ['sa', 'support'] });
+    void qc.invalidateQueries({ queryKey: ['sa', 'activity'] });
     if (viewTicket?.id === id) setViewTicket((v) => v ? { ...v, status: status as SupportTicket['status'] } : null);
   };
 
@@ -369,7 +364,7 @@ function TicketsTab({ onStatsRefresh }: { onStatsRefresh: () => void }) {
                   const sm = STATUS_META[t.status]!;
                   const pm = PRIORITY_META[t.priority]!;
                   return (
-                    <tr key={t.id} style={{ borderBottom: i < tickets.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                    <tr key={t.id} onClick={() => setViewTicket(t)} style={{ borderBottom: i < tickets.length - 1 ? '1px solid #f8fafc' : 'none', cursor: 'pointer' }}>
                       <td style={{ padding: '13px 18px', whiteSpace: 'nowrap' }}>
                         <span style={{ fontSize: '13px', fontWeight: 700, color: '#0d7470', fontFamily: 'monospace' }}>{t.ticketNo}</span>
                       </td>
@@ -397,11 +392,6 @@ function TicketsTab({ onStatsRefresh }: { onStatsRefresh: () => void }) {
                       </td>
                       <td style={{ padding: '13px 18px', whiteSpace: 'nowrap' }}>
                         <span style={{ fontSize: '12px', color: '#64748b' }}>{fmtDate(t.createdAt)}</span>
-                      </td>
-                      <td style={{ padding: '13px 18px' }}>
-                        <button onClick={() => setViewTicket(t)} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: '7px', backgroundColor: 'white', cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: '#374151', fontFamily: 'Inter, sans-serif' }}>
-                          <Eye size={13} /> View
-                        </button>
                       </td>
                     </tr>
                   );
@@ -458,7 +448,7 @@ function TicketsTab({ onStatsRefresh }: { onStatsRefresh: () => void }) {
       </div>
 
       {viewTicket && <ViewModal ticket={viewTicket} onClose={() => setViewTicket(null)} onStatusChange={handleStatusChange} />}
-      {showNew && <NewTicketModal companies={companies} onClose={() => setShowNew(false)} onCreated={() => { void fetchTickets(); onStatsRefresh(); }} />}
+      {showNew && <NewTicketModal companies={companies} onClose={() => setShowNew(false)} onCreated={() => { void qc.invalidateQueries({ queryKey: ['sa', 'support'] }); void qc.invalidateQueries({ queryKey: ['sa', 'activity'] }); }} />}
     </>
   );
 }
@@ -466,16 +456,8 @@ function TicketsTab({ onStatsRefresh }: { onStatsRefresh: () => void }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function SupportPage() {
-  const [stats, setStats] = useState({ total: 0, open: 0, inProgress: 0, resolved: 0 });
-
-  const fetchStats = useCallback(async () => {
-    try {
-      const { data } = await supportApi.getAll({ limit: '1' });
-      setStats(data.stats);
-    } catch { /* ignore */ }
-  }, []);
-
-  useEffect(() => { void fetchStats(); }, [fetchStats]);
+  const { data: statsData } = useSaSupport({ limit: '1', page: '1' });
+  const stats = statsData?.stats ?? { total: 0, open: 0, inProgress: 0, resolved: 0 };
 
   const statsRow = [
     { label: 'Total Tickets',  value: stats.total,      icon: TicketCheck,   bg: '#eff6ff', color: '#3b82f6' },
@@ -515,7 +497,7 @@ export default function SupportPage() {
       </div>
 
       {/* Tickets + Knowledge Base */}
-      <TicketsTab onStatsRefresh={() => void fetchStats()} />
+      <TicketsTab />
 
       {/* Quick Actions */}
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 22px' }}>

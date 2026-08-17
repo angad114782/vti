@@ -1,10 +1,14 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { subscriptionsApi, type Subscription, type PlanData } from '../../api/subscriptions';
-import { companiesApi, type Company } from '../../api/companies';
+import { type Company } from '../../api/companies';
+import { useSaSubscriptions, useSaPlans, useSaCompanies } from '../../hooks/queries/useSaQueries';
+import { extractError } from '../../utils/errorUtils';
+import { getPlanBadge } from '../../utils/planColors';
 import {
   IndianRupee, Users, Clock, AlertTriangle,
   Search, Check, X, Loader2, ChevronLeft, ChevronRight,
-  Plus, Pencil,
+  Plus, Pencil, Trash2,
   BarChart3,
   FileText,
   Shield,
@@ -13,11 +17,6 @@ import {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-const planMeta: Record<string, { label: string; bg: string; color: string; border: string }> = {
-  ENTERPRISE: { label: 'Enterprise', bg: '#ede9fe', color: '#6d28d9', border: '#ddd6fe' },
-  PRO:        { label: 'Pro',        bg: '#dbeafe', color: '#1d4ed8', border: '#bfdbfe' },
-  BASIC:      { label: 'Basic',      bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' },
-};
 const quickActions = [
   { icon: Download, label: 'Download Payroll' },
   { icon: Shield, label: 'Manage Roles' },
@@ -35,15 +34,307 @@ const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'n
 const fmtINR = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 const isExpiringSoon = (d: string) => { const dt = new Date(d); return dt > new Date() && dt < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); };
 
+// ── Create Plan Modal ─────────────────────────────────────────────────────────
+
+function CreatePlanModal({ onClose, onSave }: { onClose: () => void; onSave: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [name, setName] = useState('');
+  const [type, setType] = useState('');
+  const [price, setPrice] = useState('');
+  const [maxUsers, setMaxUsers] = useState('');
+  const [featureInput, setFeatureInput] = useState('');
+  const [features, setFeatures] = useState<string[]>([]);
+
+  const addFeature = () => {
+    const f = featureInput.trim();
+    if (f && !features.includes(f)) setFeatures((prev) => [...prev, f]);
+    setFeatureInput('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !type.trim() || !price || !maxUsers) {
+      setError('All fields are required');
+      return;
+    }
+    setSaving(true); setError('');
+    try {
+      await subscriptionsApi.createPlan({
+        name: name.trim(),
+        type: type.trim(),
+        price: Number(price),
+        maxUsers: Number(maxUsers),
+        features,
+      });
+      onSave();
+    } catch (err) {
+      setError(extractError(err, 'Failed to create plan'));
+    } finally { setSaving(false); }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0',
+    borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif',
+    color: '#0f172a', backgroundColor: 'white', boxSizing: 'border-box',
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}>
+      <div style={{ backgroundColor: 'white', borderRadius: '16px', width: '100%', maxWidth: '480px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid #f1f5f9' }}>
+          <div>
+            <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Create Plan</h2>
+            <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>Define a new subscription plan</p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {error && <div style={{ padding: '10px 14px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#dc2626', fontSize: '13px' }}>{error}</div>}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Plan Name *</label>
+              <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Starter" />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Plan Type (key) *</label>
+              <input style={inputStyle} value={type} onChange={(e) => setType(e.target.value)} placeholder="e.g. STARTER" />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Price (₹/month) *</label>
+              <input type="number" min="0" style={inputStyle} value={price} onChange={(e) => setPrice(e.target.value)} placeholder="e.g. 999" />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Max Users *</label>
+              <input type="number" min="1" style={inputStyle} value={maxUsers} onChange={(e) => setMaxUsers(e.target.value)} placeholder="e.g. 50" />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Features</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                style={{ ...inputStyle, flex: 1 }}
+                value={featureInput}
+                onChange={(e) => setFeatureInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFeature(); } }}
+                placeholder="Type a feature and press Enter"
+              />
+              <button type="button" onClick={addFeature} style={{ padding: '9px 14px', backgroundColor: '#f1f5f9', border: '1.5px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: '#374151', fontFamily: 'Inter, sans-serif' }}>Add</button>
+            </div>
+            {features.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                {features.map((f) => (
+                  <span key={f} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', backgroundColor: '#f0fafa', border: '1px solid #b2dfdc', borderRadius: '20px', fontSize: '12px', color: '#0d7470' }}>
+                    {f}
+                    <button type="button" onClick={() => setFeatures((prev) => prev.filter((x) => x !== f))} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 1, color: '#0d7470' }}><X size={11} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', paddingTop: '4px' }}>
+            <button type="button" onClick={onClose} style={{ padding: '9px 20px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: '#374151', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
+            <button type="submit" disabled={saving} style={{ padding: '9px 24px', backgroundColor: saving ? '#7ab8b6' : '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'Inter, sans-serif' }}>
+              {saving && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />}
+              Create Plan
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Edit Plan Modal ───────────────────────────────────────────────────────────
+
+function EditPlanModal({ plan, onClose, onSave }: { plan: PlanData; onClose: () => void; onSave: () => void }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [name, setName] = useState(plan.name);
+  const [price, setPrice] = useState(String(plan.price));
+  const [maxUsers, setMaxUsers] = useState(String(plan.maxUsers));
+  const [featureInput, setFeatureInput] = useState('');
+  const [features, setFeatures] = useState<string[]>(plan.features);
+
+  const addFeature = () => {
+    const f = featureInput.trim();
+    if (f && !features.includes(f)) setFeatures((prev) => [...prev, f]);
+    setFeatureInput('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !price || !maxUsers) { setError('All fields are required'); return; }
+    setSaving(true); setError('');
+    try {
+      await subscriptionsApi.updatePlan(plan.id, {
+        name: name.trim(),
+        price: Number(price),
+        maxUsers: Number(maxUsers),
+        features,
+      });
+      onSave();
+    } catch (err) {
+      setError(extractError(err, 'Failed to update plan'));
+    } finally { setSaving(false); }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0',
+    borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif',
+    color: '#0f172a', backgroundColor: 'white', boxSizing: 'border-box',
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}>
+      <div style={{ backgroundColor: 'white', borderRadius: '16px', width: '100%', maxWidth: '480px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid #f1f5f9' }}>
+          <div>
+            <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Edit Plan</h2>
+            <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+              Plan type <strong style={{ color: '#0d7470' }}>{plan.type}</strong> cannot be changed
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {error && <div style={{ padding: '10px 14px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#dc2626', fontSize: '13px' }}>{error}</div>}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Plan Name *</label>
+              <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Starter" />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Plan Type (key)</label>
+              <input disabled value={plan.type} style={{ ...inputStyle, backgroundColor: '#f8fafc', color: '#94a3b8', cursor: 'not-allowed' }} />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Price (₹/month) *</label>
+              <input type="number" min="0" style={inputStyle} value={price} onChange={(e) => setPrice(e.target.value)} placeholder="e.g. 999" />
+            </div>
+            <div>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Max Users *</label>
+              <input type="number" min="1" style={inputStyle} value={maxUsers} onChange={(e) => setMaxUsers(e.target.value)} placeholder="e.g. 50" />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px' }}>Features</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                style={{ ...inputStyle, flex: 1 }}
+                value={featureInput}
+                onChange={(e) => setFeatureInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFeature(); } }}
+                placeholder="Type a feature and press Enter"
+              />
+              <button type="button" onClick={addFeature} style={{ padding: '9px 14px', backgroundColor: '#f1f5f9', border: '1.5px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, color: '#374151', fontFamily: 'Inter, sans-serif' }}>Add</button>
+            </div>
+            {features.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                {features.map((f) => (
+                  <span key={f} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 10px', backgroundColor: '#f0fafa', border: '1px solid #b2dfdc', borderRadius: '20px', fontSize: '12px', color: '#0d7470' }}>
+                    {f}
+                    <button type="button" onClick={() => setFeatures((prev) => prev.filter((x) => x !== f))} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 1, color: '#0d7470' }}><X size={11} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', paddingTop: '4px' }}>
+            <button type="button" onClick={onClose} style={{ padding: '9px 20px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: '#374151', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
+            <button type="submit" disabled={saving} style={{ padding: '9px 24px', backgroundColor: saving ? '#7ab8b6' : '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'Inter, sans-serif' }}>
+              {saving && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />}
+              Save Changes
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Delete Plan Confirm Modal ──────────────────────────────────────────────────
+
+function DeletePlanConfirmModal({ plan, onClose, onSave }: { plan: PlanData; onClose: () => void; onSave: () => void }) {
+  const [deleting, setDeleting] = useState(false);
+  const [blocked, setBlocked] = useState<{ activeCount: number; latestExpiry: string } | null>(null);
+
+  const handleConfirm = async () => {
+    setDeleting(true);
+    try {
+      await subscriptionsApi.deletePlan(plan.id);
+      onSave();
+    } catch (err: any) {
+      if (err?.response?.status === 409) {
+        setBlocked({
+          activeCount: err.response.data.activeCount,
+          latestExpiry: err.response.data.latestExpiry,
+        });
+      }
+    } finally { setDeleting(false); }
+  };
+
+  const fmtD = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}>
+      <div style={{ backgroundColor: 'white', borderRadius: '16px', width: '100%', maxWidth: '420px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', borderBottom: '1px solid #f1f5f9' }}>
+          <h2 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>Deactivate Plan</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}><X size={20} /></button>
+        </div>
+        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          {blocked ? (
+            <div style={{ padding: '16px', backgroundColor: '#fffbeb', border: '1px solid #fde68a', borderRadius: '10px' }}>
+              <p style={{ fontSize: '13px', fontWeight: 700, color: '#92400e', marginBottom: '6px' }}>Cannot deactivate yet</p>
+              <p style={{ fontSize: '13px', color: '#78350f', lineHeight: '1.6' }}>
+                The <strong>{plan.name}</strong> plan is assigned to <strong>{blocked.activeCount}</strong> active subscription(s).
+                It can be deactivated after <strong>{fmtD(blocked.latestExpiry)}</strong> when all subscriptions expire.
+              </p>
+            </div>
+          ) : (
+            <p style={{ fontSize: '14px', color: '#374151', lineHeight: '1.6' }}>
+              Are you sure you want to deactivate the <strong>{plan.name}</strong> plan? It will no longer be visible or assignable to companies.
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+            <button onClick={onClose} style={{ padding: '9px 20px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', color: '#374151', fontFamily: 'Inter, sans-serif' }}>
+              {blocked ? 'Close' : 'Cancel'}
+            </button>
+            {!blocked && (
+              <button onClick={handleConfirm} disabled={deleting} style={{ padding: '9px 24px', backgroundColor: deleting ? '#fca5a5' : '#dc2626', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: deleting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontFamily: 'Inter, sans-serif' }}>
+                {deleting && <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />}
+                Deactivate
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Assign Plan Modal ─────────────────────────────────────────────────────────
 
-function AssignModal({ plans, companies, onClose, onSave }: {
-  plans: PlanData[]; companies: Company[]; onClose: () => void; onSave: () => void;
+function AssignModal({ plans, companies, defaultPlan, onClose, onSave }: {
+  plans: PlanData[]; companies: Company[]; defaultPlan?: string; onClose: () => void; onSave: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [companyId, setCompanyId] = useState('');
-  const [plan, setPlan] = useState('PRO');
+  const [plan, setPlan] = useState(defaultPlan || plans[0]?.type || '');
   const [billing, setBilling] = useState('Monthly');
   const [months, setMonths] = useState(12);
 
@@ -54,7 +345,7 @@ function AssignModal({ plans, companies, onClose, onSave }: {
     try {
       await subscriptionsApi.assign({ companyId, plan, billingCycle: billing, months });
       onSave();
-    } catch { setError('Something went wrong. Please try again.'); }
+    } catch (err) { setError(extractError(err, 'Failed to assign plan')); }
     finally { setSaving(false); }
   };
 
@@ -208,45 +499,39 @@ function EditModal({ sub, onClose, onSave }: { sub: Subscription; onClose: () =>
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function SubscriptionsPage() {
-  const [tab, setTab] = useState<'overview' | 'plans'>('overview');
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [plans, setPlans] = useState<PlanData[]>([]);
-  const [allCompanies, setAllCompanies] = useState<Company[]>([]);
-  const [stats, setStats] = useState({ monthlyRevenue: 0, active: 0, trial: 0, expiringSoon: 0 });
-  const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [planFilter, setPlanFilter] = useState('ALL');
-  const [billingFilter, setBillingFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [page, setPage] = useState(1);
-  const [showAssign, setShowAssign] = useState(false);
-  const [editSub, setEditSub] = useState<Subscription | null>(null);
+  const qc = useQueryClient();
+  const [tab,             setTab]             = useState<'overview' | 'plans'>('overview');
+  const [search,          setSearch]          = useState('');
+  const [planFilter,      setPlanFilter]      = useState('ALL');
+  const [billingFilter,   setBillingFilter]   = useState('ALL');
+  const [statusFilter,    setStatusFilter]    = useState('ALL');
+  const [page,            setPage]            = useState(1);
+  const [showAssign,      setShowAssign]      = useState<string | boolean>(false);
+  const [showCreatePlan,  setShowCreatePlan]  = useState(false);
+  const [editSub,         setEditSub]         = useState<Subscription | null>(null);
+  const [editPlan,        setEditPlan]        = useState<PlanData | null>(null);
+  const [deletePlanTarget, setDeletePlanTarget] = useState<PlanData | null>(null);
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = { page: String(page), limit: '8' };
-      if (search) params.search = search;
-      if (planFilter !== 'ALL') params.plan = planFilter;
-      if (billingFilter !== 'ALL') params.billing = billingFilter;
-      if (statusFilter !== 'ALL') params.status = statusFilter;
+  const subParams: Record<string, string> = { page: String(page), limit: '8' };
+  if (search) subParams.search = search;
+  if (planFilter !== 'ALL') subParams.plan = planFilter;
+  if (billingFilter !== 'ALL') subParams.billing = billingFilter;
+  if (statusFilter !== 'ALL') subParams.status = statusFilter;
 
-      const [subRes, planRes, compRes] = await Promise.all([
-        subscriptionsApi.getAll(params),
-        subscriptionsApi.getPlans(),
-        companiesApi.getAll({ limit: '100' }),
-      ]);
-      setSubscriptions(subRes.data.subscriptions);
-      setStats(subRes.data.stats);
-      setPagination(subRes.data.pagination);
-      setPlans(planRes.data);
-      setAllCompanies(compRes.data.companies);
-    } catch { /* ignore */ }
-    finally { setLoading(false); }
-  }, [search, planFilter, billingFilter, statusFilter, page]);
+  const { data: subData,   isLoading: loading } = useSaSubscriptions(subParams);
+  const { data: plans = []                     } = useSaPlans();
+  const { data: compData                       } = useSaCompanies({ limit: '100' });
 
-  useEffect(() => { void fetchAll(); }, [fetchAll]);
+  const subscriptions = (subData?.subscriptions ?? []) as Subscription[];
+  const stats         = subData?.stats         ?? { monthlyRevenue: 0, active: 0, trial: 0, expiringSoon: 0 };
+  const pagination    = subData?.pagination    ?? { total: 0, page: 1, totalPages: 1 };
+  const allCompanies  = (compData?.companies   ?? []) as Company[];
+
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['sa', 'subscriptions'] });
+    void qc.invalidateQueries({ queryKey: ['sa', 'plans'] });
+    void qc.invalidateQueries({ queryKey: ['sa', 'companies'] });
+  };
 
   const statsRow = [
     { label: 'Monthly Revenue',      value: fmtINR(stats.monthlyRevenue), icon: IndianRupee,   iconBg: '#f0fdf4', iconColor: '#22c55e' },
@@ -267,7 +552,7 @@ export default function SubscriptionsPage() {
           <p style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>Manage your platform and monitor client companies</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
-          <button style={{ padding: '9px 18px', border: '1.5px solid #0d7470', borderRadius: '8px', backgroundColor: 'white', color: '#0d7470', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+          <button onClick={() => setShowCreatePlan(true)} style={{ padding: '9px 18px', border: '1.5px solid #0d7470', borderRadius: '8px', backgroundColor: 'white', color: '#0d7470', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
             + Create Plan
           </button>
           <button onClick={() => setShowAssign(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 18px', backgroundColor: '#0d7470', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
@@ -319,9 +604,9 @@ export default function SubscriptionsPage() {
               </div>
               <select value={planFilter} onChange={(e) => { setPlanFilter(e.target.value); setPage(1); }} style={selectStyle}>
                 <option value="ALL">All Plans</option>
-                <option value="BASIC">Basic</option>
-                <option value="PRO">Pro</option>
-                <option value="ENTERPRISE">Enterprise</option>
+                {plans.map((p) => (
+                  <option key={p.type} value={p.type}>{p.name}</option>
+                ))}
               </select>
               <select value={billingFilter} onChange={(e) => { setBillingFilter(e.target.value); setPage(1); }} style={selectStyle}>
                 <option value="ALL">All Billing</option>
@@ -359,24 +644,25 @@ export default function SubscriptionsPage() {
                   </thead>
                   <tbody>
                     {subscriptions.map((s, i) => {
-                      const av = getAvatarColor(s.company.name);
-                      const pm = planMeta[s.plan];
+                      const companyName = s.company?.name ?? 'Unknown Company';
+                      const av = getAvatarColor(companyName);
+                      const pm = getPlanBadge(s.plan, plans);
                       const expWarn = isExpiringSoon(s.endDate);
                       return (
                         <tr key={s.id} style={{ borderBottom: i < subscriptions.length - 1 ? '1px solid #f8fafc' : 'none' }}>
                           <td style={{ padding: '13px 20px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                               <div style={{ width: '34px', height: '34px', borderRadius: '9px', backgroundColor: av.bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: av.color, fontWeight: 700, fontSize: '11px' }}>
-                                {initials(s.company.name)}
+                                {initials(companyName)}
                               </div>
                               <div>
-                                <p style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap' }}>{s.company.name}</p>
-                                <p style={{ fontSize: '11px', color: '#94a3b8' }}>{s.company.industry ?? '—'}</p>
+                                <p style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap' }}>{companyName}</p>
+                                <p style={{ fontSize: '11px', color: '#94a3b8' }}>{s.company?.industry ?? '—'}</p>
                               </div>
                             </div>
                           </td>
                           <td style={{ padding: '13px 20px' }}>
-                            <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, backgroundColor: pm?.bg, color: pm?.color, border: `1px solid ${pm?.border}` }}>{pm?.label}</span>
+                            <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, backgroundColor: pm.bg, color: pm.color, border: `1px solid ${pm.border}` }}>{pm.label}</span>
                           </td>
                           <td style={{ padding: '13px 20px', fontSize: '13px', color: '#374151' }}>{s.billingCycle}</td>
                           <td style={{ padding: '13px 20px', fontSize: '13px', color: '#374151', whiteSpace: 'nowrap' }}>{fmtDate(s.startDate)}</td>
@@ -424,8 +710,9 @@ export default function SubscriptionsPage() {
             <h2 style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>Available Plans</h2>
             <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Choose a plan that fits your company's needs</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-              {plans.map((p) => {
-                const highlight = p.type === 'PRO';
+              {plans.map((p, idx) => {
+                const highlight = idx === Math.floor(plans.length / 2);
+                const pb = getPlanBadge(p.type, plans);
                 return (
                   <div key={p.type} style={{
                     border: `2px solid ${highlight ? '#0d7470' : '#e2e8f0'}`,
@@ -437,12 +724,24 @@ export default function SubscriptionsPage() {
                         POPULAR
                       </div>
                     )}
+                    <div style={{ position: 'absolute', top: '12px', right: '12px', display: 'flex', gap: '4px' }}>
+                      <button
+                        onClick={() => setEditPlan(p)}
+                        title="Edit plan"
+                        style={{ width: '28px', height: '28px', border: '1px solid #e2e8f0', borderRadius: '7px', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}
+                      ><Pencil size={13} /></button>
+                      <button
+                        onClick={() => setDeletePlanTarget(p)}
+                        title="Deactivate plan"
+                        style={{ width: '28px', height: '28px', border: '1px solid #fecaca', borderRadius: '7px', backgroundColor: '#fff5f5', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}
+                      ><Trash2 size={13} /></button>
+                    </div>
                     <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', marginBottom: '4px' }}>
                       <span style={{ fontSize: '28px', fontWeight: 800, color: '#0f172a' }}>₹{p.price.toLocaleString('en-IN')}</span>
                       <span style={{ fontSize: '13px', color: '#64748b', marginBottom: '4px' }}>/mo</span>
                     </div>
-                    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, marginBottom: '12px', backgroundColor: planMeta[p.type]?.bg, color: planMeta[p.type]?.color, border: `1px solid ${planMeta[p.type]?.border}` }}>
-                      {p.name}
+                    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, marginBottom: '12px', backgroundColor: pb.bg, color: pb.color, border: `1px solid ${pb.border}` }}>
+                      {pb.label}
                     </span>
                     <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '14px' }}>
                       User Limit: <strong>{p.maxUsers >= 999999 ? 'Unlimited' : p.maxUsers}</strong>
@@ -458,7 +757,7 @@ export default function SubscriptionsPage() {
                       ))}
                     </div>
                     <button
-                      onClick={() => setShowAssign(true)}
+                      onClick={() => setShowAssign(p.type)}
                       style={{
                         width: '100%', padding: '10px', border: `2px solid ${highlight ? '#0d7470' : '#e2e8f0'}`,
                         borderRadius: '9px', backgroundColor: highlight ? '#0d7470' : 'white',
@@ -477,11 +776,20 @@ export default function SubscriptionsPage() {
       </div>
 
       {/* Modals */}
+      {showCreatePlan && (
+        <CreatePlanModal onClose={() => setShowCreatePlan(false)} onSave={() => { setShowCreatePlan(false); refresh(); }} />
+      )}
       {showAssign && (
-        <AssignModal plans={plans} companies={allCompanies} onClose={() => setShowAssign(false)} onSave={() => { setShowAssign(false); void fetchAll(); }} />
+        <AssignModal plans={plans} companies={allCompanies} defaultPlan={typeof showAssign === 'string' ? showAssign : undefined} onClose={() => setShowAssign(false)} onSave={() => { setShowAssign(false); refresh(); }} />
       )}
       {editSub && (
-        <EditModal sub={editSub} onClose={() => setEditSub(null)} onSave={() => { setEditSub(null); void fetchAll(); }} />
+        <EditModal sub={editSub} onClose={() => setEditSub(null)} onSave={() => { setEditSub(null); refresh(); }} />
+      )}
+      {editPlan && (
+        <EditPlanModal plan={editPlan} onClose={() => setEditPlan(null)} onSave={() => { setEditPlan(null); refresh(); }} />
+      )}
+      {deletePlanTarget && (
+        <DeletePlanConfirmModal plan={deletePlanTarget} onClose={() => setDeletePlanTarget(null)} onSave={() => { setDeletePlanTarget(null); refresh(); }} />
       )}
 
 

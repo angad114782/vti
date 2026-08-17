@@ -2,11 +2,16 @@ import { Request, Response } from 'express';
 import Subscription from '../models/Subscription';
 import Plan from '../models/Plan';
 import Company from '../models/Company';
+import Module from '../models/Module';
+import CompanyModule from '../models/CompanyModule';
+import { escapeRegex, clampLimit } from '../utils/query';
+import { logActivity } from '../utils/activity';
 
 export const getSubscriptions = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { search, plan, billing, status, page = '1', limit = '8' } = req.query as Record<string, string>;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const { search, plan, billing, status, page = '1' } = req.query as Record<string, string>;
+    const limit = clampLimit(req.query.limit as string | undefined, 8);
+    const skip = (parseInt(page) - 1) * limit;
 
     const subWhere: Record<string, unknown> = {};
     if (status && status !== 'ALL') subWhere.isActive = status === 'ACTIVE';
@@ -15,8 +20,10 @@ export const getSubscriptions = async (req: Request, res: Response): Promise<voi
 
     let companyIds: string[] | null = null;
     if (search) {
+      const re = escapeRegex(search);
       const companies = await Company.find({
-        $or: [{ name: new RegExp(search, 'i') }, { industry: new RegExp(search, 'i') }],
+        isDeleted: { $ne: true },
+        $or: [{ name: re }, { industry: re }],
       }).select('_id').lean();
       companyIds = companies.map((c) => c._id.toString());
       subWhere.companyId = { $in: companyIds };
@@ -25,9 +32,9 @@ export const getSubscriptions = async (req: Request, res: Response): Promise<voi
     const [subscriptions, total] = await Promise.all([
       Subscription.find(subWhere)
         .skip(skip)
-        .limit(parseInt(limit))
+        .limit(limit)
         .sort({ createdAt: -1 })
-        .populate('companyId', 'id name industry plan'),
+        .populate('companyId', '_id name industry plan isDeleted'),
       Subscription.countDocuments(subWhere),
     ]);
 
@@ -44,9 +51,16 @@ export const getSubscriptions = async (req: Request, res: Response): Promise<voi
       ]),
     ]);
 
+    const transformed = subscriptions.map((s: any) => {
+      const obj = s.toJSON();
+      obj.company = obj.companyId;
+      return obj;
+    });
+    const filtered = transformed.filter((s: any) => s.company != null && !s.company.isDeleted);
+
     res.json({
-      subscriptions,
-      pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) },
+      subscriptions: filtered,
+      pagination: { total, page: parseInt(page), limit, totalPages: Math.ceil(total / limit) },
       stats: {
         monthlyRevenue: revenueAgg[0]?.total ?? 0,
         active: activeCount,
@@ -65,6 +79,50 @@ export const getPlans = async (_req: Request, res: Response): Promise<void> => {
     const plans = await Plan.find({ isActive: true }).sort({ price: 1 });
     res.json(plans);
   } catch {
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const createPlan = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { name, type, price, maxUsers, features } = req.body as {
+      name: string; type: string; price: number; maxUsers: number; features: string[];
+    };
+    if (!name || !type || price == null || maxUsers == null) {
+      res.status(400).json({ message: 'name, type, price, and maxUsers are required' });
+      return;
+    }
+    const existing = await Plan.findOne({ type: type.toUpperCase() });
+    if (existing) {
+      res.status(409).json({ message: `A plan with type "${type.toUpperCase()}" already exists` });
+      return;
+    }
+    const plan = await Plan.create({ name, type: type.toUpperCase(), price, maxUsers, features: features ?? [] });
+    res.status(201).json(plan);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const updatePlan = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params as { id: string };
+    const { name, price, maxUsers, features, isActive } = req.body as {
+      name?: string; price?: number; maxUsers?: number; features?: string[]; isActive?: boolean;
+    };
+    const update: Record<string, unknown> = {};
+    if (name !== undefined) update.name = name;
+    if (price !== undefined) update.price = price;
+    if (maxUsers !== undefined) update.maxUsers = maxUsers;
+    if (features !== undefined) update.features = features;
+    if (isActive !== undefined) update.isActive = isActive;
+    const plan = await Plan.findByIdAndUpdate(id, update, { new: true });
+    if (!plan) { res.status(404).json({ message: 'Plan not found' }); return; }
+    logActivity(req, `Updated plan "${(plan as any).name}"`, 'Subscriptions');
+    res.json(plan);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Internal server error' });
   }
 };
@@ -92,14 +150,107 @@ export const assignPlan = async (req: Request, res: Response): Promise<void> => 
       { upsert: true, returnDocument: "after" },
     );
 
-    await Company.findByIdAndUpdate(companyId, {
+    const co = await Company.findByIdAndUpdate(companyId, {
       plan,
       status: 'ACTIVE',
       planExpiry: endDate,
       maxUsers: planData.get('maxUsers'),
+    }, { new: true });
+
+    // Auto-provision modules for this plan (upsert only — never overwrites existing isEnabled)
+    const availableModules = await Module.find({ availableFor: plan }).lean();
+    if (availableModules.length) {
+      await CompanyModule.bulkWrite(
+        availableModules.map((m: any) => ({
+          updateOne: {
+            filter: { companyId, moduleId: m._id },
+            update: { $setOnInsert: { companyId, moduleId: m._id, isEnabled: true } },
+            upsert: true,
+          },
+        })) as any
+      );
+    }
+
+    logActivity(req, `Assigned ${plan} plan to "${(co as any)?.name ?? companyId}"`, 'Subscriptions');
+    res.json({ message: 'Plan assigned successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const getRevenueTrend = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const months = 6;
+    const now = new Date();
+    const from = new Date(now.getFullYear(), now.getMonth() - months + 1, 1);
+
+    const agg = await Subscription.aggregate([
+      { $match: { createdAt: { $gte: from } } },
+      {
+        $group: {
+          _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
+          revenue: { $sum: '$amount' },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+    ]);
+
+    const result: { month: string; revenue: number }[] = [];
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const year = d.getFullYear();
+      const month = d.getMonth() + 1;
+      const found = agg.find((r: any) => r._id.year === year && r._id.month === month);
+      result.push({
+        month: d.toLocaleString('en-IN', { month: 'short' }),
+        revenue: found?.revenue ?? 0,
+      });
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const deletePlan = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params as { id: string };
+
+    const plan = await Plan.findById(id);
+    if (!plan) { res.status(404).json({ message: 'Plan not found' }); return; }
+
+    if ((plan as any).isActive === false) {
+      res.status(400).json({ message: 'Plan is already deactivated' });
+      return;
+    }
+
+    const now = new Date();
+    const activeCount = await Subscription.countDocuments({
+      plan: (plan as any).type,
+      isActive: true,
+      endDate: { $gt: now },
     });
 
-    res.json({ message: 'Plan assigned successfully' });
+    if (activeCount > 0) {
+      const latest = await Subscription.findOne(
+        { plan: (plan as any).type, isActive: true, endDate: { $gt: now } },
+        { endDate: 1 },
+      ).sort({ endDate: -1 });
+
+      res.status(409).json({
+        message: `This plan is currently assigned to ${activeCount} active company subscription(s). You can deactivate it once all subscriptions have expired.`,
+        activeCount,
+        latestExpiry: (latest as any)?.endDate,
+      });
+      return;
+    }
+
+    await Plan.findByIdAndUpdate(id, { isActive: false });
+    logActivity(req, `Deactivated plan "${(plan as any).name}"`, 'Subscriptions');
+    res.json({ message: 'Plan deactivated successfully' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Internal server error' });
@@ -116,7 +267,9 @@ export const updateSubscription = async (req: Request, res: Response): Promise<v
     if (isActive !== undefined) update.isActive = isActive;
     if (endDate) update.endDate = new Date(endDate);
 
-    const sub = await Subscription.findByIdAndUpdate(id, update, { new: true }).populate('companyId', 'id name');
+    const sub = await Subscription.findByIdAndUpdate(id, update, { new: true }).populate('companyId', '_id name industry plan');
+    const coName = (sub as any)?.companyId?.name ?? id;
+    logActivity(req, `Updated subscription for "${coName}"`, 'Subscriptions');
     res.json(sub);
   } catch {
     res.status(500).json({ message: 'Internal server error' });

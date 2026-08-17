@@ -4,6 +4,8 @@ import User from '../models/User';
 import RefreshToken from '../models/RefreshToken';
 import ActivityLog from '../models/ActivityLog';
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from '../utils/jwt';
+import { logActivity } from '../utils/activity';
+import { getUserId } from '../utils/authContext';
 
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -28,7 +30,8 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     }
 
     const userId = user._id.toString();
-    const companyId = user.get('companyId')?.toString();
+    const populatedCompany = user.get('companyId') as { _id: { toString(): string }; name: string } | null;
+    const companyId = populatedCompany?._id?.toString();
 
     const payload = { userId, email: user.get('email'), role: user.get('role'), companyId };
     const accessToken = generateAccessToken(payload);
@@ -41,14 +44,14 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 
     await ActivityLog.create({
       userId: user._id,
-      companyId: user.get('companyId'),
+      companyId: companyId ?? undefined,
       action: 'Logged In',
       module: 'Auth',
       status: 'Success',
       ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
     });
 
-    const company = user.get('companyId') as { _id: { toString(): string }; name: string } | null;
     res.json({
       accessToken,
       refreshToken,
@@ -58,7 +61,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
         email: user.get('email'),
         role: user.get('role'),
         avatar: user.get('avatar'),
-        company: company ? { id: company._id.toString(), name: company.name } : null,
+        company: populatedCompany ? { id: populatedCompany._id.toString(), name: populatedCompany.name } : null,
       },
     });
   } catch (error) {
@@ -85,7 +88,7 @@ export const refreshToken = async (req: Request, res: Response): Promise<void> =
 
     await RefreshToken.deleteOne({ token });
 
-    const payload = { userId: decoded.userId, email: decoded.email, role: decoded.role };
+    const payload = { userId: decoded.userId, email: decoded.email, role: decoded.role, companyId: decoded.companyId };
     const newAccessToken = generateAccessToken(payload);
     const newRefreshToken = generateRefreshToken(payload);
 
@@ -112,28 +115,50 @@ export const logout = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-export const changePassword = async (req: Request & { user?: { userId: string } }, res: Response): Promise<void> => {
+export const changePassword = async (req: Request, res: Response): Promise<void> => {
   try {
     const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string };
     if (!currentPassword || !newPassword) {
       res.status(400).json({ message: 'Current and new password are required' });
       return;
     }
-    const user = await User.findById(req.user!.userId);
+    const user = await User.findById(getUserId(req));
     if (!user) { res.status(404).json({ message: 'User not found' }); return; }
     const valid = await bcrypt.compare(currentPassword, user.get('password'));
     if (!valid) { res.status(401).json({ message: 'Current password is incorrect' }); return; }
     const hashed = await bcrypt.hash(newPassword, 10);
     await User.findByIdAndUpdate(user._id, { password: hashed });
+    logActivity(req, 'Changed password', 'Auth');
     res.json({ message: 'Password updated successfully' });
   } catch {
     res.status(500).json({ message: 'Internal server error' });
   }
 };
 
-export const getMe = async (req: Request & { user?: { userId: string } }, res: Response): Promise<void> => {
+export const updateMe = async (req: Request, res: Response): Promise<void> => {
   try {
-    const user = await User.findById(req.user!.userId)
+    const userId = getUserId(req);
+    const { name, email } = req.body as { name?: string; email?: string };
+    if (email) {
+      const conflict = await User.findOne({ email, _id: { $ne: userId } }).lean();
+      if (conflict) { res.status(409).json({ message: 'Email already in use' }); return; }
+    }
+    const updated = await User.findByIdAndUpdate(
+      userId,
+      { ...(name ? { name } : {}), ...(email ? { email } : {}) },
+      { new: true }
+    ).select('name email').lean();
+    if (!updated) { res.status(404).json({ message: 'User not found' }); return; }
+    logActivity(req, `Updated profile — ${updated.name}`, 'Auth');
+    res.json(updated);
+  } catch {
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const getMe = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await User.findById(getUserId(req))
       .select('name email role avatar')
       .populate('companyId', 'name');
 

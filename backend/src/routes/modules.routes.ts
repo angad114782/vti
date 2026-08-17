@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getModules, getCompaniesForModules, toggleModule, getPermissions, updatePermission } from '../controllers/modules.controller';
+import { getModules, getCompaniesForModules, toggleModule, getPermissions, updatePermission, createModule, updateModule, deleteModule } from '../controllers/modules.controller';
 import { authenticate, requireRole } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -10,5 +10,9 @@ router.get('/companies', getCompaniesForModules);
 router.put('/toggle', toggleModule);
 router.get('/permissions', getPermissions);
 router.put('/permissions', updatePermission);
+
+router.post('/', createModule);
+router.put('/:id', updateModule);
+router.delete('/:id', deleteModule);
 
 export default router;

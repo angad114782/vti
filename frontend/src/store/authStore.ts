@@ -19,6 +19,8 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   setTokens: (access: string, refresh: string) => void;
+  setUser: (patch: Partial<User>) => void;
+  hydrate: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -61,6 +63,22 @@ export const useAuthStore = create<AuthState>()(
         localStorage.setItem('accessToken', access);
         localStorage.setItem('refreshToken', refresh);
         set({ accessToken: access, refreshToken: refresh });
+      },
+
+      setUser: (patch) => set((s) => ({ user: s.user ? { ...s.user, ...patch } : s.user })),
+
+      hydrate: async () => {
+        const token = localStorage.getItem('accessToken');
+        if (!token) return;
+        try {
+          const { data } = await api.get('/auth/me');
+          set({ user: data });
+        } catch {
+          // Token invalid — clear everything
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+          set({ user: null, accessToken: null, refreshToken: null });
+        }
       },
     }),
     {

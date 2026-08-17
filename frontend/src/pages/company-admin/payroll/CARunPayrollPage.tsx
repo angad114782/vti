@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, Users, Home, Download } from 'lucide-react';
+import { CheckCircle2, Users, Home, Download, Loader2 } from 'lucide-react';
+import { hrApi } from '../../../api/hr';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const YEARS  = ['2024','2025','2026'];
@@ -41,9 +42,27 @@ export default function CARunPayrollPage() {
   const [empType, setEmpType] = useState<'permanent' | 'contract'>('permanent');
   const [toggles, setToggles] = useState<Toggle[]>(INIT_TOGGLES);
   const [locked,  setLocked]  = useState(false);
+  const [saving,  setSaving]  = useState(false);
+  const [error,   setError]   = useState('');
+  const [result,  setResult]  = useState<{ created: number; skipped: number } | null>(null);
 
   const toggleItem = (i: number) =>
     setToggles((p) => p.map((t, idx) => idx === i ? { ...t, enabled: !t.enabled } : t));
+
+  const handleRunPayroll = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const monthNumber = MONTHS.indexOf(month) + 1;
+      const { data } = await hrApi.runPayroll({ month: monthNumber, year: Number(year) });
+      setResult({ created: data.created, skipped: data.skipped });
+      setLocked(true);
+    } catch {
+      setError('Failed to process payroll. Try again or verify the selected period.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const selectStyle: React.CSSProperties = {
     width: '100%', padding: '10px 14px', border: '1.5px solid #e2e8f0', borderRadius: '8px',
@@ -61,7 +80,14 @@ export default function CARunPayrollPage() {
             <CheckCircle2 size={32} color="#16a34a" />
           </div>
           <h2 style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a', marginBottom: '10px' }}>Payroll Locked Successfully!</h2>
-          <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>{month} {year} payroll has been processed. You can now generate payslips.</p>
+          <p style={{ fontSize: '13px', color: '#64748b', lineHeight: 1.6 }}>{month} {year} payroll has been processed. You can now review generated payslips.</p>
+          {result && (
+            <div style={{ marginTop: '16px', padding: '12px 14px', borderRadius: '10px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', textAlign: 'left' }}>
+              <p style={{ fontSize: '12px', color: '#0f172a', fontWeight: 700 }}>Run summary</p>
+              <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>Created payslips: {result.created}</p>
+              <p style={{ fontSize: '12px', color: '#64748b' }}>Skipped existing payslips: {result.skipped}</p>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: '10px', marginTop: '28px' }}>
             <button
               onClick={() => navigate('/company-admin/payroll/payslips')}
@@ -178,6 +204,7 @@ export default function CARunPayrollPage() {
         <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '24px' }}>
           <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '6px' }}>Validate & Lock Payroll</h3>
           <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '20px' }}>Review the summary below. Once locked, payroll cannot be edited.</p>
+          {error && <div style={{ marginBottom: '16px', padding: '12px 14px', borderRadius: '8px', backgroundColor: '#fef2f2', color: '#b91c1c', fontSize: '12px' }}>{error}</div>}
 
           <div style={{ backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '16px', marginBottom: '16px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -185,9 +212,6 @@ export default function CARunPayrollPage() {
                 { label: 'Period',        value: `${month} ${year}` },
                 { label: 'Employee Type', value: empType === 'permanent' ? 'Permanent Staff' : 'Contract Workers' },
                 { label: 'Components',    value: toggles.filter((t) => t.enabled).map((t) => t.label).join(', ') },
-                { label: 'Payroll Cost',  value: '₹4,85,250' },
-                { label: 'Net Payable',   value: '₹4,12,450' },
-                { label: 'Total Deductions', value: '₹72,800' },
               ].map(({ label, value }) => (
                 <div key={label}>
                   <p style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.3px' }}>{label}</p>
@@ -204,10 +228,12 @@ export default function CARunPayrollPage() {
           <div style={{ display: 'flex', gap: '10px' }}>
             <button onClick={() => setStep(2)} style={{ padding: '12px 20px', border: '1.5px solid #e2e8f0', borderRadius: '10px', backgroundColor: 'white', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>← Back</button>
             <button
-              onClick={() => setLocked(true)}
-              style={{ flex: 1, padding: '12px', backgroundColor: '#0d4a47', color: 'white', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}
+              onClick={() => void handleRunPayroll()}
+              disabled={saving}
+              style={{ flex: 1, padding: '12px', backgroundColor: saving ? '#94a3b8' : '#0d4a47', color: 'white', border: 'none', borderRadius: '10px', fontSize: '13px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
-              🔒 Lock & Process Payroll
+              {saving ? <Loader2 size={15} style={{ animation: 'spin 1s linear infinite' }} /> : null}
+              Lock & Process Payroll
             </button>
           </div>
         </div>

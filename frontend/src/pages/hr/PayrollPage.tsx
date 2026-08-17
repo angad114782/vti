@@ -1,6 +1,9 @@
-import { useState, useEffect } from 'react';
-import { hrApi, type SalaryRow, type Payslip } from '../../api/hr';
+import { useState } from 'react';
+import { type SalaryRow, type Payslip } from '../../api/hr';
 import { DollarSign, Download, Loader2 } from 'lucide-react';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import PaginationBar from '../../components/data/Pagination';
+import { useHrSalary, useHrPayslips } from '../../hooks/queries/useHrQueries';
 
 const fmtCtc = (n: number | null) => n ? `₹${(n / 100000).toFixed(2)}L` : '—';
 const fmtPay = (n: number) => `₹${n.toLocaleString('en-IN')}`;
@@ -21,19 +24,25 @@ const STATUS_META: Record<string, { bg: string; color: string }> = {
 };
 
 export default function PayrollPage() {
-  const [tab, setTab] = useState<'salary' | 'payslips'>('salary');
-  const [salary, setSalary] = useState<SalaryRow[]>([]);
-  const [payslips, setPayslips] = useState<Payslip[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [tab,    setTab]    = useState<'salary' | 'payslips'>('salary');
+  const [search, setSearch] = useState('');
+  const [page,   setPage]   = useState(1);
+  const limit = 20;
 
-  useEffect(() => {
-    setLoading(true);
-    if (tab === 'salary') {
-      hrApi.getSalary().then(({ data }) => { setSalary(data); setLoading(false); }).catch(() => setLoading(false));
-    } else {
-      hrApi.getPayslips().then(({ data }) => { setPayslips(data); setLoading(false); }).catch(() => setLoading(false));
-    }
-  }, [tab]);
+  const debouncedSearch = useDebouncedValue(search, 300);
+  const params: Record<string, string> = { page: String(page), limit: String(limit) };
+  if (debouncedSearch) params.search = debouncedSearch;
+
+  const { data: salaryData, isLoading: salaryLoading } = useHrSalary(tab === 'salary' ? params : undefined);
+  const { data: payslipData, isLoading: payslipLoading } = useHrPayslips(tab === 'payslips' ? params : undefined);
+
+  const salary: SalaryRow[] = salaryData?.results ?? [];
+  const payslips: Payslip[] = payslipData?.payslips ?? [];
+  const pagination = (tab === 'salary' ? salaryData?.pagination : payslipData?.pagination) ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
+  const loading = tab === 'salary' ? salaryLoading : payslipLoading;
+
+  const handleTabChange    = (t: 'salary' | 'payslips') => { setTab(t); setPage(1); setSearch(''); };
+  const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -44,10 +53,10 @@ export default function PayrollPage() {
         </div>
         <div style={{ display: 'flex', border: '1.5px solid #e2e8f0', borderRadius: '9px', overflow: 'hidden', backgroundColor: 'white' }}>
           {([
-            { key: 'salary',  label: 'Salary Structure' },
-            { key: 'payslips',label: 'Payslip History'  },
+            { key: 'salary',   label: 'Salary Structure' },
+            { key: 'payslips', label: 'Payslip History'  },
           ] as const).map(({ key, label }) => (
-            <button key={key} onClick={() => setTab(key)} style={{ padding: '8px 18px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif', backgroundColor: tab === key ? '#0d7470' : 'white', color: tab === key ? 'white' : '#64748b', transition: 'all 0.15s' }}>
+            <button key={key} onClick={() => handleTabChange(key)} style={{ padding: '8px 18px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif', backgroundColor: tab === key ? '#0d7470' : 'white', color: tab === key ? 'white' : '#64748b', transition: 'all 0.15s' }}>
               {label}
             </button>
           ))}
@@ -55,11 +64,14 @@ export default function PayrollPage() {
       </div>
 
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
           <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{tab === 'salary' ? 'Salary Structure' : 'Payslip History'}</h3>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: '#374151', fontFamily: 'Inter, sans-serif' }}>
-            <Download size={13} /> Export
-          </button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <input value={search} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ padding: '6px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc', width: '180px' }} />
+            <button style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: '#374151', fontFamily: 'Inter, sans-serif' }}>
+              <Download size={13} /> Export
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -99,6 +111,7 @@ export default function PayrollPage() {
                     </tr>
                   );
                 })}
+                {salary.length === 0 && <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>No salary records found</td></tr>}
               </tbody>
             </table>
           </div>
@@ -129,18 +142,19 @@ export default function PayrollPage() {
                       <td style={{ padding: '12px 18px' }}><span style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>{fmtPay(p.netPay)}</span></td>
                       <td style={{ padding: '12px 18px' }}><span style={{ padding: '3px 8px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: sm.bg, color: sm.color }}>{p.status}</span></td>
                       <td style={{ padding: '12px 18px' }}>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Download size={13} /></button>
-                        </div>
+                        <button style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Download size={13} /></button>
                       </td>
                     </tr>
                   );
                 })}
+                {payslips.length === 0 && <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>No payslips found</td></tr>}
               </tbody>
             </table>
           </div>
         )}
       </div>
+
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => setPage(p)} />
 
       {/* Quick Actions */}
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 22px' }}>

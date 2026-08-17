@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { activityApi, type ActivityLog } from '../../api/activity';
+import { useSaActivity } from '../../hooks/queries/useSaQueries';
 import {
   Activity, CheckCircle2, XCircle, Calendar,
-  Search, Eye, X, ChevronLeft, ChevronRight,
+  Search, X, ChevronLeft, ChevronRight,
   Loader2, Download, Shield, FileText, BarChart3,
   LogIn, Clock,
 } from 'lucide-react';
@@ -10,17 +11,30 @@ import {
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const roleMeta: Record<string, { label: string; bg: string; color: string }> = {
-  SUPER_ADMIN: { label: 'Super Admin', bg: '#ede9fe', color: '#6d28d9' },
-  HR:          { label: 'HR',          bg: '#dbeafe', color: '#1d4ed8' },
-  SUPERVISOR:  { label: 'Supervisor',  bg: '#f0fdf4', color: '#15803d' },
-  MANAGER:     { label: 'Manager',     bg: '#fff7ed', color: '#c2410c' },
-  EMPLOYEE:    { label: 'Employee',    bg: '#f1f5f9', color: '#475569' },
+  SUPER_ADMIN:   { label: 'Super Admin',   bg: '#ede9fe', color: '#6d28d9' },
+  COMPANY_ADMIN: { label: 'Company Admin', bg: '#fdf4ff', color: '#a21caf' },
+  HR:            { label: 'HR',            bg: '#dbeafe', color: '#1d4ed8' },
+  FINANCE:       { label: 'Finance',       bg: '#f0fdf4', color: '#15803d' },
+  SUPERVISOR:    { label: 'Supervisor',    bg: '#fff7ed', color: '#c2410c' },
+  MANAGER:       { label: 'Manager',       bg: '#fef9c3', color: '#854d0e' },
+  EMPLOYEE:      { label: 'Employee',      bg: '#f1f5f9', color: '#475569' },
 };
 
 const moduleColors: Record<string, string> = {
-  Auth: '#6366f1', Payroll: '#10b981', Workforce: '#3b82f6',
-  Attendance: '#f59e0b', Subscriptions: '#8b5cf6', Reports: '#0ea5e9',
-  'Shift Management': '#ec4899', Modules: '#14b8a6', Settings: '#64748b',
+  Auth:          '#6366f1',
+  Companies:     '#0f766e',
+  Subscriptions: '#7c3aed',
+  Employees:     '#3b82f6',
+  Attendance:    '#f59e0b',
+  Leaves:        '#10b981',
+  Approvals:     '#8b5cf6',
+  Expenses:      '#ef4444',
+  Documents:     '#0ea5e9',
+  Payroll:       '#14b8a6',
+  Shifts:        '#ec4899',
+  Users:         '#64748b',
+  Settings:      '#a16207',
+  Support:       '#f97316',
 };
 
 const avatarColors = [
@@ -34,13 +48,13 @@ const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).
 const fmtTime = (d: string) => {
   const dt = new Date(d);
   return {
-    time: dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false }),
-    date: dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }),
+    time: dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+    date: dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
   };
 };
 
 const fmtFull = (d: string) =>
-  new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
 
 // ── View Log Modal ────────────────────────────────────────────────────────────
 
@@ -104,8 +118,8 @@ function LogModal({ log, onClose }: { log: ActivityLog; onClose: () => void }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-const MODULES = ['Auth', 'Payroll', 'Workforce', 'Attendance', 'Subscriptions', 'Reports', 'Shift Management', 'Modules', 'Settings'];
-const ROLES = ['SUPER_ADMIN', 'HR', 'SUPERVISOR', 'MANAGER', 'EMPLOYEE'];
+const MODULES = ['Auth', 'Companies', 'Subscriptions', 'Employees', 'Attendance', 'Leaves', 'Approvals', 'Expenses', 'Documents', 'Payroll', 'Shifts', 'Users', 'Settings', 'Support'];
+const ROLES = ['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR', 'FINANCE', 'SUPERVISOR', 'MANAGER', 'EMPLOYEE'];
 
 const quickActions = [
   { icon: Download,  label: 'Download Logs' },
@@ -115,39 +129,27 @@ const quickActions = [
 ];
 
 export default function ActivityPage() {
-  const [tab, setTab] = useState<'activity' | 'login'>('activity');
-  const [logs, setLogs] = useState<ActivityLog[]>([]);
-  const [companies, setCompanies] = useState<{ id: string; name: string }[]>([]);
-  const [stats, setStats] = useState({ total: 0, today: 0, success: 0, failed: 0 });
-  const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [tab,          setTab]          = useState<'activity' | 'login'>('activity');
+  const [companies,    setCompanies]    = useState<{ id: string; name: string }[]>([]);
+  const [search,       setSearch]       = useState('');
   const [companyFilter, setCompanyFilter] = useState('ALL');
-  const [roleFilter, setRoleFilter] = useState('ALL');
+  const [roleFilter,   setRoleFilter]   = useState('ALL');
   const [moduleFilter, setModuleFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [page, setPage] = useState(1);
-  const [viewLog, setViewLog] = useState<ActivityLog | null>(null);
+  const [page,         setPage]         = useState(1);
+  const [viewLog,      setViewLog]      = useState<ActivityLog | null>(null);
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = { type: tab, page: String(page), limit: '10' };
-      if (search) params.search = search;
-      if (companyFilter !== 'ALL') params.company = companyFilter;
-      if (roleFilter !== 'ALL') params.role = roleFilter;
-      if (moduleFilter !== 'ALL') params.module = moduleFilter;
-      if (statusFilter !== 'ALL') params.status = statusFilter;
+  const actParams: Record<string, string> = { type: tab, page: String(page), limit: '10' };
+  if (search) actParams.search = search;
+  if (companyFilter !== 'ALL') actParams.company = companyFilter;
+  if (roleFilter !== 'ALL') actParams.role = roleFilter;
+  if (moduleFilter !== 'ALL') actParams.module = moduleFilter;
+  if (statusFilter !== 'ALL') actParams.status = statusFilter;
 
-      const { data } = await activityApi.getAll(params);
-      setLogs(data.logs);
-      setStats(data.stats);
-      setPagination(data.pagination);
-    } catch { /* ignore */ }
-    finally { setLoading(false); }
-  }, [tab, search, companyFilter, roleFilter, moduleFilter, statusFilter, page]);
-
-  useEffect(() => { void fetchLogs(); }, [fetchLogs]);
+  const { data, isLoading: loading } = useSaActivity(actParams);
+  const logs       = (data?.logs       ?? []) as ActivityLog[];
+  const stats      = data?.stats       ?? { total: 0, today: 0, success: 0, failed: 0 };
+  const pagination = data?.pagination  ?? { total: 0, page: 1, totalPages: 1 };
 
   useEffect(() => {
     activityApi.getCompanies().then(({ data }) => setCompanies(data)).catch(() => {});
@@ -261,7 +263,7 @@ export default function ActivityPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc' }}>
-                  {['Time', 'User', 'Role', 'Company', 'Action', 'Status', 'Actions'].map((h) => (
+                  {['Time', 'User', 'Role', 'Company', 'Action', 'Status'].map((h) => (
                     <th key={h} style={{ textAlign: 'left', padding: '10px 20px', fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -273,7 +275,7 @@ export default function ActivityPage() {
                   const av = log.user ? getAvatarColor(log.user.name) : avatarColors[0]!;
                   const modColor = log.module ? (moduleColors[log.module] ?? '#64748b') : '#64748b';
                   return (
-                    <tr key={log.id} style={{ borderBottom: i < logs.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                    <tr key={log.id} onClick={() => setViewLog(log)} style={{ borderBottom: i < logs.length - 1 ? '1px solid #f8fafc' : 'none', cursor: 'pointer' }}>
                       {/* Time */}
                       <td style={{ padding: '13px 20px', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -320,12 +322,6 @@ export default function ActivityPage() {
                           {log.status === 'Success' ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
                           {log.status}
                         </span>
-                      </td>
-                      {/* Actions */}
-                      <td style={{ padding: '13px 20px' }}>
-                        <button onClick={() => setViewLog(log)} style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 12px', border: '1px solid #e2e8f0', borderRadius: '7px', backgroundColor: 'white', cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: '#374151', fontFamily: 'Inter, sans-serif' }}>
-                          <Eye size={13} /> View
-                        </button>
                       </td>
                     </tr>
                   );

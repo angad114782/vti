@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
-import { financeApi } from '../../api/finance';
-import type { Employee } from '../../api/hr';
+import { toast } from 'sonner';
+import { type Employee } from '../../api/hr';
+import { extractError } from '../../utils/errorUtils';
 import { Check, Loader2, ChevronRight } from 'lucide-react';
+import { useFinanceEmployees } from '../../hooks/queries/useFinanceQueries';
+import { useFinanceRunPayroll } from '../../hooks/mutations/useFinanceMutations';
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -49,25 +52,28 @@ interface EmpRow { emp: Employee; selected: boolean; daysPresent: number; leaves
 
 export default function FinancePayrollPage() {
   const [step, setStep] = useState<Step>(1);
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<EmpRow[]>([]);
   const [typeFilter, setTypeFilter] = useState('All Types');
-  const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
+  const [generateError, setGenerateError] = useState('');
 
+  const { data: empData, isLoading: loading } = useFinanceEmployees({ limit: '200' });
+  const runPayroll = useFinanceRunPayroll();
+
+  const employees = empData?.employees ?? [];
+
+  // Initialize rows once employees are loaded
   useEffect(() => {
-    financeApi.getEmployees().then(({ data }) => {
-      const emps = data.employees ?? [];
-      setEmployees(emps);
-      setRows(emps.map((e) => ({
-        emp: e, selected: false,
-        daysPresent: Math.floor(20 + Math.random() * 6),
-        leaves: Math.floor(Math.random() * 3),
-        ot: Math.floor(Math.random() * 10),
+    if (employees.length > 0 && rows.length === 0) {
+      setRows(employees.map((e) => ({
+        emp: e,
+        selected: false,
+        daysPresent: 0,
+        leaves: 0,
+        ot: 0,
       })));
-    }).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+    }
+  }, [employees]);
 
   const toggleAll = (v: boolean) => setRows((r) => r.map((x) => ({ ...x, selected: v })));
   const toggleRow = (id: string) => setRows((r) => r.map((x) => x.emp.id === id ? { ...x, selected: !x.selected } : x));
@@ -87,12 +93,29 @@ export default function FinancePayrollPage() {
   const holdCount = selected.filter((r) => r.leaves > 2).length;
   const holdAmt = selected.filter((r) => r.leaves > 2).reduce((s, r) => s + calcSalary(r).net, 0);
 
-  const handleGenerate = async () => {
-    setGenerating(true);
-    await new Promise((r) => setTimeout(r, 1200));
-    setGenerating(false);
-    setGenerated(true);
+  const handleGenerate = () => {
+    setGenerateError('');
+    const now = new Date();
+    runPayroll.mutate(
+      {
+        month: now.getMonth() + 1,
+        year: now.getFullYear(),
+        employeeIds: selected.map((r) => r.emp.id),
+      },
+      {
+        onSuccess: () => {
+          setGenerated(true);
+          toast.success('Payslips generated successfully');
+        },
+        onError: (err) => {
+          setGenerateError(extractError(err, 'Failed to generate payslips'));
+          toast.error(extractError(err, 'Failed to generate payslips'));
+        },
+      },
+    );
   };
+
+  const generating = runPayroll.isPending;
 
   const btnStyle = (disabled = false): React.CSSProperties => ({
     padding: '9px 22px', backgroundColor: disabled ? '#e2e8f0' : '#0d7470', border: 'none', borderRadius: '8px',
@@ -325,12 +348,17 @@ export default function FinancePayrollPage() {
                 <span style={{ fontSize: '13px', color: '#16a34a', fontWeight: 600 }}>Payslips generated successfully for {selected.length - holdCount} employees.</span>
               </div>
             )}
+            {generateError && (
+              <div style={{ padding: '12px 16px', borderRadius: '8px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', marginBottom: '14px' }}>
+                <span style={{ fontSize: '13px', color: '#b91c1c', fontWeight: 600 }}>{generateError}</span>
+              </div>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '14px', borderTop: '1px solid #f1f5f9' }}>
               <button onClick={() => { setStep(3); setGenerated(false); }} style={{ padding: '9px 18px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>← Back</button>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <p style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px', alignSelf: 'center' }}>QUICK ACTIONS</p>
-                <button onClick={() => void handleGenerate()} disabled={generating || generated} style={btnStyle(generating || generated)}>
+                <button onClick={() => handleGenerate()} disabled={generating || generated} style={btnStyle(generating || generated)}>
                   {generating ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Generating...</> : generated ? '✓ Payslips Generated' : 'Generate Payslips →'}
                 </button>
               </div>

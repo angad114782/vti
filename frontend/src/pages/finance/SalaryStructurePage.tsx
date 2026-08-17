@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
-import { financeApi } from '../../api/finance';
+import { useState } from 'react';
 import type { SalaryRow } from '../../api/hr';
-import { Edit2, Loader2, Download, Eye, BarChart2 } from 'lucide-react';
+import { Edit2, Loader2, Download, Eye, BarChart2, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import PaginationBar from '../../components/data/Pagination';
+import { useFinanceSalary } from '../../hooks/queries/useFinanceQueries';
 
 const fmtCtc = (n: number | null) => n ? `₹${(n / 100000).toFixed(2)}L` : '—';
 const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }) : '—';
@@ -17,16 +19,28 @@ const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).
 
 export default function SalaryStructurePage() {
   const navigate = useNavigate();
-  const [salary, setSalary] = useState<SalaryRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [monthFilter, setMonthFilter] = useState('February');
   const [yearFilter, setYearFilter] = useState('2026');
   const [deptFilter, setDeptFilter] = useState('All Departments');
   const [empFilter, setEmpFilter] = useState('All Employees');
+  const [page, setPage] = useState(1);
+  const [limit] = useState(20);
 
-  useEffect(() => {
-    financeApi.getSalary().then(({ data }) => setSalary(data)).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  const debouncedSearch = useDebouncedValue(search, 300);
+
+  const params: Record<string, string> = { page: String(page), limit: String(limit) };
+  if (debouncedSearch) params.search = debouncedSearch;
+  if (deptFilter !== 'All Departments') params.department = deptFilter;
+  if (empFilter !== 'All Employees') params.employmentType = empFilter;
+
+  const { data, isLoading: loading } = useFinanceSalary(params);
+  const salary: SalaryRow[] = data?.results ?? [];
+  const pagination = data?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
+
+  const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
+  const handleDeptChange   = (v: string) => { setDeptFilter(v); setPage(1); };
+  const handleEmpChange    = (v: string) => { setEmpFilter(v); setPage(1); };
 
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const selStyle: React.CSSProperties = { padding: '6px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#374151', backgroundColor: 'white', cursor: 'pointer', outline: 'none', fontFamily: 'Inter, sans-serif' };
@@ -48,17 +62,20 @@ export default function SalaryStructurePage() {
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         {/* Filters */}
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input placeholder="Search employee..." style={{ flex: 1, minWidth: '160px', padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
+          <div style={{ position: 'relative', flex: 1, minWidth: '160px' }}>
+            <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <input value={search} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ width: '100%', paddingLeft: '32px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
+          </div>
           <select value={monthFilter} onChange={(e) => setMonthFilter(e.target.value)} style={selStyle}>
             {MONTHS.map((m) => <option key={m}>{m}</option>)}
           </select>
           <select value={yearFilter} onChange={(e) => setYearFilter(e.target.value)} style={selStyle}>
             <option>2026</option><option>2025</option><option>2024</option>
           </select>
-          <select value={empFilter} onChange={(e) => setEmpFilter(e.target.value)} style={selStyle}>
+          <select value={empFilter} onChange={(e) => handleEmpChange(e.target.value)} style={selStyle}>
             <option>All Employees</option><option>Permanent</option><option>Contract</option>
           </select>
-          <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} style={selStyle}>
+          <select value={deptFilter} onChange={(e) => handleDeptChange(e.target.value)} style={selStyle}>
             <option>All Departments</option><option>Engineering</option><option>Sales</option><option>Finance</option>
           </select>
         </div>
@@ -101,6 +118,9 @@ export default function SalaryStructurePage() {
                     </tr>
                   );
                 })}
+                {salary.length === 0 && (
+                  <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>No records found</td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -121,6 +141,8 @@ export default function SalaryStructurePage() {
           </div>
         </div>
       </div>
+
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => setPage(p)} />
     </div>
   );
 }

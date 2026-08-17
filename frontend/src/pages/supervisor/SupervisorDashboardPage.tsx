@@ -1,34 +1,25 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, UserCheck, UserX, ClipboardList, X, ChevronDown, Send } from 'lucide-react';
+import { Users, UserCheck, UserX, ClipboardList, X, ChevronDown, Send, Loader2 } from 'lucide-react';
+import { useSupAttendanceSummary, useSupApprovals } from '../../hooks/queries/useSupQueries';
 
-const STATS = [
-  { label: 'Total Workforce',   value: '12', icon: Users,          iconBg: '#f0f9ff', iconColor: '#0ea5e9' },
-  { label: 'Present Today',     value: '8',  icon: UserCheck,      iconBg: '#f0fdf4', iconColor: '#16a34a' },
-  { label: 'Absent Today',      value: '4',  icon: UserX,          iconBg: '#fef2f2', iconColor: '#dc2626' },
-  { label: 'Pending Approvals', value: '6',  icon: ClipboardList,  iconBg: '#eff6ff', iconColor: '#2563eb' },
-];
-
-const SHIFTS = [
-  { label: 'Morning Shift',  present: 8,  absent: 2, total: 10, color: '#0d7470' },
-  { label: 'Evening Shift',  present: 4,  absent: 1, total: 5,  color: '#f59e0b' },
-  { label: 'Night Shift',    present: 6,  absent: 3, total: 9,  color: '#6366f1' },
-];
-
-const PENDING = [
-  { label: 'Approve Leave Requests',      count: 3 },
-  { label: 'Review Pending Timesheets',   count: 5 },
-  { label: 'Complete Performance Reviews',count: 2 },
-];
+interface DashData {
+  totalWorkforce: number;
+  presentToday: number;
+  absentToday: number;
+  pendingApprovals: number;
+  pendingLeaves: number;
+  depts: { department: string; total: number; present: number; percentage: number }[];
+}
 
 const ISSUE_CATS = ['Attendance Issue', 'Workforce Shortage Issue', 'Logistics/Rotations Issue', 'Shift Assignment Issue', 'System Error Issue', 'Others'];
 const PRIORITIES = ['Low', 'Medium', 'High', 'Critical'];
 
 function HelpModal({ onClose }: { onClose: () => void }) {
-  const [category, setCategory] = useState('');
-  const [subject, setSubject] = useState('');
+  const [category,    setCategory]    = useState('');
+  const [subject,     setSubject]     = useState('');
   const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState('');
+  const [priority,    setPriority]    = useState('');
 
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#0f172a', backgroundColor: 'white' };
 
@@ -55,7 +46,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Unable to fulfill Packaging Morning Shift" style={inputStyle} />
           </div>
           <div>
-            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>Logistics/Rotations Issue Description</label>
+            <label style={{ fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' }}>Description</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Describe the issue in detail" rows={3} style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.5 }} />
           </div>
           <div>
@@ -75,7 +66,7 @@ function HelpModal({ onClose }: { onClose: () => void }) {
         </div>
         <div style={{ padding: '12px 22px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 18px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 20px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+          <button onClick={onClose} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 20px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
             <Send size={13} /> Submit
           </button>
         </div>
@@ -87,6 +78,36 @@ function HelpModal({ onClose }: { onClose: () => void }) {
 export default function SupervisorDashboardPage() {
   const navigate = useNavigate();
   const [showHelp, setShowHelp] = useState(false);
+
+  const { data: attData, isLoading: attLoading } = useSupAttendanceSummary();
+  const { data: appData, isLoading: appLoading } = useSupApprovals({ limit: '1' });
+
+  const loading = attLoading || appLoading;
+
+  const att = attData?.stats;
+  const d: DashData | null = att ? {
+    totalWorkforce:   att.totalWorkforce,
+    presentToday:     att.presentToday,
+    absentToday:      att.absent,
+    pendingApprovals: appData?.stats?.pending ?? 0,
+    pendingLeaves:    appData?.stats?.pending ?? 0,
+    depts:            (attData?.departments ?? []).slice(0, 4),
+  } : null;
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '200px' }}>
+        <Loader2 size={22} style={{ animation: 'spin 1s linear infinite' }} color="#0d7470" />
+      </div>
+    );
+  }
+
+  const STAT_CARDS = [
+    { label: 'Total Workforce',   value: d?.totalWorkforce ?? 0,   icon: Users,         iconBg: '#f0f9ff', iconColor: '#0ea5e9' },
+    { label: 'Present Today',     value: d?.presentToday ?? 0,     icon: UserCheck,     iconBg: '#f0fdf4', iconColor: '#16a34a' },
+    { label: 'Absent Today',      value: d?.absentToday ?? 0,      icon: UserX,         iconBg: '#fef2f2', iconColor: '#dc2626' },
+    { label: 'Pending Approvals', value: d?.pendingApprovals ?? 0, icon: ClipboardList, iconBg: '#eff6ff', iconColor: '#2563eb' },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -100,9 +121,8 @@ export default function SupervisorDashboardPage() {
         </button>
       </div>
 
-      {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-        {STATS.map(({ label, value, icon: Icon, iconBg, iconColor }) => (
+        {STAT_CARDS.map(({ label, value, icon: Icon, iconBg, iconColor }) => (
           <div key={label} style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
               <p style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>{label}</p>
@@ -116,67 +136,53 @@ export default function SupervisorDashboardPage() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-        {/* Attendance by Shift */}
+        {/* Attendance by Department */}
         <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
-          <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '16px' }}>Attendance by Shift</h3>
+          <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '16px' }}>Attendance by Department</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-            {SHIFTS.map((s) => {
-              const pct = Math.round((s.present / s.total) * 100);
-              return (
-                <div key={s.label}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{s.label}</span>
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      <span style={{ fontSize: '12px', color: '#16a34a', fontWeight: 600 }}>● {s.present} Present</span>
-                      <span style={{ fontSize: '12px', color: '#dc2626', fontWeight: 600 }}>● {s.absent} Absent</span>
-                    </div>
-                  </div>
-                  <div style={{ height: '6px', borderRadius: '3px', backgroundColor: '#f1f5f9', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', borderRadius: '3px', backgroundColor: s.color, transition: 'width 0.4s' }} />
+            {(d?.depts ?? []).length === 0 && (
+              <p style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center', padding: '16px' }}>No attendance data</p>
+            )}
+            {(d?.depts ?? []).map((dept) => (
+              <div key={dept.department}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{dept.department}</span>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <span style={{ fontSize: '12px', color: '#16a34a', fontWeight: 600 }}>● {dept.present} Present</span>
+                    <span style={{ fontSize: '12px', color: '#dc2626', fontWeight: 600 }}>● {dept.total - dept.present} Absent</span>
                   </div>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Workforce Composition */}
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>Workforce Composition</h3>
-            <button style={{ fontSize: '12px', color: '#0d7470', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>View Detail</button>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '16px' }}>
-            {[
-              { label: 'Present (Perm)',     value: '940', color: '#0d7470' },
-              { label: 'Present (Contract)', value: '270', color: '#3b82f6' },
-              { label: 'Total Headcount',    value: '582', color: '#374151' },
-            ].map(({ label, value, color }) => (
-              <div key={label} style={{ textAlign: 'center', padding: '10px', borderRadius: '8px', backgroundColor: '#f8fafc' }}>
-                <p style={{ fontSize: '18px', fontWeight: 800, color }}>{value}</p>
-                <p style={{ fontSize: '10px', color: '#94a3b8', marginTop: '3px', lineHeight: 1.3 }}>{label}</p>
+                <div style={{ height: '6px', borderRadius: '3px', backgroundColor: '#f1f5f9', overflow: 'hidden' }}>
+                  <div style={{ width: `${dept.percentage}%`, height: '100%', borderRadius: '3px', backgroundColor: '#0d7470', transition: 'width 0.4s' }} />
+                </div>
               </div>
             ))}
           </div>
         </div>
-      </div>
 
-      {/* Pending Actions */}
-      <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
-        <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '14px' }}>Pending Actions</h3>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {PENDING.map((p, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #f1f5f9' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#f59e0b', flexShrink: 0 }} />
-                <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{p.label}</span>
+        {/* Pending Actions */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 20px', borderBottom: '1px solid #f1f5f9' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>Pending Actions</h3>
+            <p style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>Items requiring your attention</p>
+          </div>
+          <div style={{ padding: '12px 0' }}>
+            {[
+              { label: 'Approve Leave Requests',  count: d?.pendingLeaves ?? 0 },
+              { label: 'Review Approval Requests', count: d?.pendingApprovals ?? 0 },
+            ].map((p, i) => (
+              <div key={i} style={{ padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', borderBottom: i === 0 ? '1px solid #f8fafc' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: '#f59e0b', flexShrink: 0 }} />
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{p.label}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#ea580c', backgroundColor: '#fff7ed', padding: '2px 8px', borderRadius: '20px' }}>{p.count} pending</span>
+                  <button onClick={() => navigate('/supervisor/approvals')} style={{ padding: '5px 14px', backgroundColor: '#0d7470', border: 'none', borderRadius: '7px', color: 'white', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Review</button>
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: '#ea580c', backgroundColor: '#fff7ed', padding: '2px 8px', borderRadius: '20px' }}>{p.count} pending</span>
-                <button onClick={() => navigate('/supervisor/approvals')} style={{ padding: '5px 14px', backgroundColor: '#0d7470', border: 'none', borderRadius: '7px', color: 'white', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Review</button>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 

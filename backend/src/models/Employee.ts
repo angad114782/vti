@@ -17,6 +17,11 @@ const employeeSchema = new Schema({
   status: { type: String, default: 'Active' },
 }, { timestamps: true });
 
+employeeSchema.index({ companyId: 1 });
+employeeSchema.index({ companyId: 1, department: 1 });
+employeeSchema.index({ companyId: 1, status: 1 });
+employeeSchema.index({ companyId: 1, department: 1, status: 1 });
+
 employeeSchema.set('toJSON', {
   virtuals: true,
   transform: (_doc: unknown, ret: any) => {

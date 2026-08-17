@@ -3,7 +3,7 @@ import mongoose, { Schema } from 'mongoose';
 const moduleSchema = new Schema({
   name: { type: String, required: true, unique: true },
   description: String,
-  availableFor: [{ type: String, enum: ['BASIC', 'PRO', 'ENTERPRISE'] }],
+  availableFor: [{ type: String }],
 }, { timestamps: { createdAt: true, updatedAt: false } });
 
 moduleSchema.set('toJSON', {

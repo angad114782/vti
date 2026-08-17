@@ -2,6 +2,7 @@ import { Outlet, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import HRSidebar from './HRSidebar';
 import { Search, Bell, HelpCircle } from 'lucide-react';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 function HRTopBar() {
   const { user } = useAuthStore();
@@ -48,7 +49,7 @@ export default function HRLayout() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <HRTopBar />
         <main style={{ flex: 1, padding: '24px', overflowY: 'auto' }}>
-          <Outlet />
+          <ErrorBoundary><Outlet /></ErrorBoundary>
         </main>
       </div>
     </div>

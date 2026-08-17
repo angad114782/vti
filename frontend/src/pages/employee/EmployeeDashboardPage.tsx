@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { employeeApi } from '../../api/employee';
 import { CalendarCheck, Plane, FileText, Receipt, TrendingUp, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useMyProfile, useMyAttendance, useMyLeaves, useMyPayslips, useMyExpenses } from '../../hooks/queries/useEmployeeQueries';
 
 const avatarColors = [
   { bg: '#eef2ff', color: '#6366f1' }, { bg: '#f0fdf4', color: '#10b981' },
@@ -20,19 +19,18 @@ interface Profile {
 export default function EmployeeDashboardPage() {
   const { user } = useAuthStore();
   const navigate  = useNavigate();
-  const [profile, setProfile]   = useState<Profile | null>(null);
-  const [attStats, setAttStats] = useState({ present: 0, late: 0, absent: 0, totalHours: 0, workingDays: 0 });
-  const [leaveBalance, setLeaveBalance] = useState<{ type: string; remaining: number; total: number }[]>([]);
-  const [latestPayslip, setLatestPayslip] = useState<{ period: string; netPay: number; status: string } | null>(null);
-  const [pendingExpenses, setPendingExpenses] = useState(0);
 
-  useEffect(() => {
-    employeeApi.getProfile().then(({ data }) => setProfile(data as Profile)).catch(() => {});
-    employeeApi.getAttendance().then(({ data }) => setAttStats(data.stats)).catch(() => {});
-    employeeApi.getLeaves().then(({ data }) => setLeaveBalance(data.balance)).catch(() => {});
-    employeeApi.getPayslips().then(({ data }) => { if (data.length > 0) setLatestPayslip(data[0]!); }).catch(() => {});
-    employeeApi.getExpenses().then(({ data }) => setPendingExpenses(data.stats.pending)).catch(() => {});
-  }, []);
+  const { data: profileRaw } = useMyProfile();
+  const { data: attData    } = useMyAttendance();
+  const { data: leaveData  } = useMyLeaves();
+  const { data: payslipRaw } = useMyPayslips();
+  const { data: expData    } = useMyExpenses();
+
+  const profile         = profileRaw as Profile | null | undefined;
+  const attStats        = (attData as { stats?: { present: number; late: number; absent: number; totalHours: number; workingDays: number } } | undefined)?.stats ?? { present: 0, late: 0, absent: 0, totalHours: 0, workingDays: 0 };
+  const leaveBalance    = (leaveData as { balance?: { type: string; remaining: number; total: number }[] } | undefined)?.balance ?? [];
+  const latestPayslip   = (Array.isArray(payslipRaw) ? payslipRaw[0] : null) as { period: string; netPay: number; status: string } | null | undefined;
+  const pendingExpenses = (expData as { stats?: { pending: number } } | undefined)?.stats?.pending ?? 0;
 
   const name = user?.name ?? 'Employee';
   const av   = getAv(name);
@@ -182,20 +180,31 @@ export default function EmployeeDashboardPage() {
         </div>
       </div>
 
-      {/* Upcoming leaves / alerts */}
+      {/* Alerts & Reminders — derived from live data */}
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
         <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '14px' }}>Alerts & Reminders</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {[
-            { icon: TrendingUp,   color: '#16a34a', bg: '#f0fdf4', msg: 'Your attendance rate is above 90% this month — great work!' },
-            { icon: CheckCircle2, color: '#2563eb', bg: '#eff6ff', msg: 'Payslip for May 2026 is available. Download from Payslips section.' },
-            { icon: AlertCircle,  color: '#ea580c', bg: '#fff7ed', msg: 'You have 1 pending expense claim awaiting finance approval.' },
-          ].map(({ icon: Icon, color, bg, msg }) => (
-            <div key={msg} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', backgroundColor: bg, borderRadius: '8px' }}>
-              <Icon size={16} color={color} style={{ flexShrink: 0 }} />
-              <span style={{ fontSize: '12px', color: '#374151' }}>{msg}</span>
+          {attendancePct >= 90 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', backgroundColor: '#f0fdf4', borderRadius: '8px' }}>
+              <TrendingUp size={16} color="#16a34a" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: '12px', color: '#374151' }}>Your attendance rate is {attendancePct}% this month — great work!</span>
             </div>
-          ))}
+          )}
+          {latestPayslip && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', backgroundColor: '#eff6ff', borderRadius: '8px' }}>
+              <CheckCircle2 size={16} color="#2563eb" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: '12px', color: '#374151' }}>Payslip for {latestPayslip.period} is available. Download from Payslips section.</span>
+            </div>
+          )}
+          {pendingExpenses > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 14px', backgroundColor: '#fff7ed', borderRadius: '8px' }}>
+              <AlertCircle size={16} color="#ea580c" style={{ flexShrink: 0 }} />
+              <span style={{ fontSize: '12px', color: '#374151' }}>You have {pendingExpenses} pending expense claim{pendingExpenses > 1 ? 's' : ''} awaiting finance approval.</span>
+            </div>
+          )}
+          {attendancePct < 90 && !latestPayslip && pendingExpenses === 0 && (
+            <p style={{ fontSize: '13px', color: '#94a3b8' }}>No alerts at this time.</p>
+          )}
         </div>
       </div>
     </div>

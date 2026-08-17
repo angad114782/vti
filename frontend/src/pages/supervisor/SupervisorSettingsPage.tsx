@@ -1,6 +1,9 @@
 import { useState } from 'react';
-import { Save, Shield, Bell, User, Loader2, CheckCircle2, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { Save, Shield, Bell, User, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import api from '../../api/axios';
+import { extractError } from '../../utils/errorUtils';
 
 type Tab = 'profile' | 'notifications' | 'security';
 
@@ -12,34 +15,46 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
   );
 }
 
-function Toast({ message, onClose }: { message: string; onClose: () => void }) {
-  return (
-    <div style={{ position: 'fixed', bottom: '28px', right: '28px', zIndex: 1100, display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 18px', borderRadius: '10px', backgroundColor: '#0d7470', color: 'white', boxShadow: '0 8px 24px rgba(0,0,0,0.18)', fontSize: '13px', fontWeight: 600 }}>
-      <CheckCircle2 size={16} /> {message}
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)', marginLeft: '4px' }}><X size={14} /></button>
-    </div>
-  );
-}
-
 const inputStyle: React.CSSProperties = { width: '100%', padding: '9px 12px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#0f172a', backgroundColor: 'white' };
 const labelStyle: React.CSSProperties = { fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '5px', display: 'block' };
 
 export default function SupervisorSettingsPage() {
-  const { user } = useAuthStore();
+  const { user, setUser } = useAuthStore();
   const [tab, setTab] = useState<Tab>('profile');
-  const [toast, setToast] = useState('');
   const [saving, setSaving] = useState(false);
 
   const [profile, setProfile] = useState({ name: user?.name ?? '', email: user?.email ?? '', phone: '', department: 'Assembly' });
   const [notifs, setNotifs] = useState({ attendanceAlerts: true, shiftAlerts: true, overtimeAlerts: false, approvalReminders: true });
   const [security, setSecurity] = useState({ twoFA: false, sessionTimeout: true });
+  const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
+  const [pwSaving, setPwSaving] = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 700));
-    setSaving(false);
-    setToast('Settings saved successfully');
-    setTimeout(() => setToast(''), 3000);
+    try {
+      await api.patch('/auth/me', { name: profile.name, email: profile.email });
+      setUser({ name: profile.name, email: profile.email });
+      toast.success('Settings saved successfully');
+    } catch (err) {
+      toast.error(extractError(err, 'Failed to save settings'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handlePasswordChange = async () => {
+    if (pwForm.next !== pwForm.confirm) { toast.error('Passwords do not match'); return; }
+    if (pwForm.next.length < 8) { toast.error('New password must be at least 8 characters'); return; }
+    setPwSaving(true);
+    try {
+      await api.post('/auth/change-password', { currentPassword: pwForm.current, newPassword: pwForm.next });
+      toast.success('Password updated successfully');
+      setPwForm({ current: '', next: '', confirm: '' });
+    } catch (err) {
+      toast.error(extractError(err, 'Failed to update password'));
+    } finally {
+      setPwSaving(false);
+    }
   };
 
   const TABS: { key: Tab; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
@@ -86,8 +101,8 @@ export default function SupervisorSettingsPage() {
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div><label style={labelStyle}>First Name</label><input value={profile.name.split(' ')[0] ?? ''} onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value + ' ' + (p.name.split(' ')[1] ?? '') }))} style={inputStyle} /></div>
-            <div><label style={labelStyle}>Last Name</label><input value={profile.name.split(' ')[1] ?? ''} onChange={(e) => setProfile((p) => ({ ...p, name: (p.name.split(' ')[0] ?? '') + ' ' + e.target.value }))} style={inputStyle} /></div>
+            <div><label style={labelStyle}>First Name</label><input value={profile.name.split(' ')[0] ?? ''} onChange={(e) => setProfile((p) => ({ ...p, name: e.target.value + ' ' + (p.name.split(' ').slice(1).join(' ') || '') }))} style={inputStyle} /></div>
+            <div><label style={labelStyle}>Last Name</label><input value={profile.name.split(' ').slice(1).join(' ')} onChange={(e) => setProfile((p) => ({ ...p, name: (p.name.split(' ')[0] ?? '') + ' ' + e.target.value }))} style={inputStyle} /></div>
             <div><label style={labelStyle}>Email</label><input value={profile.email} type="email" onChange={(e) => setProfile((p) => ({ ...p, email: e.target.value }))} style={inputStyle} /></div>
             <div><label style={labelStyle}>Phone Number</label><input value={profile.phone} onChange={(e) => setProfile((p) => ({ ...p, phone: e.target.value }))} placeholder="+91 XXXXX XXXXX" style={inputStyle} /></div>
             <div><label style={labelStyle}>Role</label><input value="Supervisor" disabled style={{ ...inputStyle, backgroundColor: '#f8fafc', color: '#64748b' }} /></div>
@@ -120,14 +135,17 @@ export default function SupervisorSettingsPage() {
         <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '22px' }}>
           <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>Change Password</h3>
           <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '16px' }}>Keep your account secure</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '24px' }}>
-            <div><label style={labelStyle}>Old Password</label><input type="password" placeholder="••••••••" style={inputStyle} /></div>
-            <div><label style={labelStyle}>New Password</label><input type="password" placeholder="••••••••" style={inputStyle} /></div>
-            <div><label style={labelStyle}>Confirm New Password</label><input type="password" placeholder="••••••••" style={inputStyle} /></div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+            <div><label style={labelStyle}>Old Password</label><input type="password" value={pwForm.current} onChange={(e) => setPwForm((p) => ({ ...p, current: e.target.value }))} placeholder="••••••••" style={inputStyle} /></div>
+            <div><label style={labelStyle}>New Password</label><input type="password" value={pwForm.next} onChange={(e) => setPwForm((p) => ({ ...p, next: e.target.value }))} placeholder="••••••••" style={inputStyle} /></div>
+            <div><label style={labelStyle}>Confirm New Password</label><input type="password" value={pwForm.confirm} onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))} placeholder="••••••••" style={inputStyle} /></div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '24px' }}>
-            <button style={{ padding: '8px 18px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
-            <button style={{ padding: '8px 18px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Update Password</button>
+            <button onClick={() => setPwForm({ current: '', next: '', confirm: '' })} style={{ padding: '8px 18px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
+            <button onClick={() => void handlePasswordChange()} disabled={pwSaving} style={{ padding: '8px 18px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: pwSaving ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', display: 'flex', alignItems: 'center', gap: '6px', opacity: pwSaving ? 0.8 : 1 }}>
+              {pwSaving && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
+              Update Password
+            </button>
           </div>
           <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '14px' }}>Two-Factor Authentication</h3>
           {[
@@ -141,8 +159,6 @@ export default function SupervisorSettingsPage() {
           ))}
         </div>
       )}
-
-      {toast && <Toast message={toast} onClose={() => setToast('')} />}
     </div>
   );
 }
