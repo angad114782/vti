@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { caApi, type CAModule } from '../../api/companyAdmin';
+import { type CAModule } from '../../api/companyAdmin';
 import { Loader2, Layers, CheckCircle2, XCircle } from 'lucide-react';
+import { useCaModules } from '../../hooks/queries/useCaQueries';
+import { useToggleModule } from '../../hooks/mutations/useCaMutations';
 
 const MODULE_ICONS: Record<string, string> = {
   Attendance: '📅', Payroll: '💰', 'Leave Management': '✈️',
@@ -9,24 +10,15 @@ const MODULE_ICONS: Record<string, string> = {
 };
 
 export default function CAModulesPage() {
-  const [modules,  setModules]  = useState<CAModule[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [toggling, setToggling] = useState<string | null>(null);
+  const { data: modules = [], isLoading: loading } = useCaModules();
+  const toggleModule = useToggleModule();
 
-  useEffect(() => {
-    caApi.getModules().then(({ data }) => setModules(data)).catch(() => {}).finally(() => setLoading(false));
-  }, []);
-
-  const handleToggle = async (m: CAModule) => {
-    setToggling(m.module.id);
-    try {
-      await caApi.toggleModule(m.module.id, !m.isEnabled);
-      setModules((prev) => prev.map((x) => x.module.id === m.module.id ? { ...x, isEnabled: !m.isEnabled } : x));
-    } finally { setToggling(null); }
+  const handleToggle = (m: CAModule) => {
+    toggleModule.mutate({ moduleId: m.module.id, isEnabled: !m.isEnabled });
   };
 
-  const enabled  = modules.filter((m) => m.isEnabled).length;
-  const disabled = modules.length - enabled;
+  const enabled  = (modules as CAModule[]).filter((m) => m.isEnabled).length;
+  const disabled = (modules as CAModule[]).length - enabled;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -57,7 +49,7 @@ export default function CAModulesPage() {
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px' }}>
-          {modules.map((m) => (
+          {(modules as CAModule[]).filter((m) => m.module).map((m) => (
             <div key={m.id} style={{ backgroundColor: 'white', borderRadius: '12px', border: `1px solid ${m.isEnabled ? '#bbf7d0' : '#e2e8f0'}`, padding: '20px', transition: 'border-color 0.2s' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -73,8 +65,8 @@ export default function CAModulesPage() {
                   </div>
                 </div>
                 <button
-                  onClick={() => void handleToggle(m)}
-                  disabled={toggling === m.module.id}
+                  onClick={() => handleToggle(m)}
+                  disabled={toggleModule.isPending && toggleModule.variables?.moduleId === m.module.id}
                   style={{ width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: toggling === m.module.id ? 'not-allowed' : 'pointer', backgroundColor: m.isEnabled ? '#16a34a' : '#e2e8f0', position: 'relative', transition: 'background-color 0.2s', flexShrink: 0 }}>
                   <div style={{ position: 'absolute', top: '3px', left: m.isEnabled ? '22px' : '3px', width: '18px', height: '18px', borderRadius: '50%', backgroundColor: 'white', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
                 </button>

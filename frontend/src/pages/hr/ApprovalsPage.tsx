@@ -1,6 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
-import { hrApi, type Approval } from '../../api/hr';
-import { Search, CheckCircle2, XCircle, AlertTriangle, Clock, Loader2, Eye, X } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
+import { type Approval } from '../../api/hr';
+import { Search, CheckCircle2, XCircle, AlertTriangle, Clock, Loader2, X } from 'lucide-react';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import PaginationBar from '../../components/data/Pagination';
+import { extractError } from '../../utils/errorUtils';
+import { useApprovals } from '../../hooks/queries/useHrQueries';
+import { useUpdateApproval } from '../../hooks/mutations/useHrMutations';
 
 const TYPES = ['Leave', 'Expense', 'Attendance Corrections', 'Overtime', 'Shift Change Request'];
 const PRIORITY_COLOR: Record<string, { bg: string; color: string }> = {
@@ -20,32 +26,36 @@ const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
 export default function ApprovalsPage() {
-  const [approvals, setApprovals] = useState<Approval[]>([]);
-  const [stats, setStats] = useState({ pending: 24, approvedToday: 12, rejected: 3, escalated: 5 });
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
+  const [page, setPage] = useState(1);
+  const limit = 20;
   const [viewItem, setViewItem] = useState<Approval | null>(null);
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    try {
-      const p: Record<string, string> = {};
-      if (search) p.search = search;
-      if (statusFilter !== 'ALL') p.status = statusFilter;
-      if (typeFilter !== 'ALL') p.type = typeFilter;
-      const { data } = await hrApi.getApprovals(p);
-      setApprovals(data.approvals); setStats(data.stats);
-    } finally { setLoading(false); }
-  }, [search, statusFilter, typeFilter]);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
-  useEffect(() => { void fetch(); }, [fetch]);
+  const params: Record<string, string> = { page: String(page), limit: String(limit) };
+  if (debouncedSearch) params.search = debouncedSearch;
+  if (statusFilter !== 'ALL') params.status = statusFilter;
+  if (typeFilter !== 'ALL') params.type = typeFilter;
 
-  const handleAction = async (id: string, status: string) => {
-    await hrApi.updateApproval(id, status);
-    setApprovals((prev) => prev.map((a) => a.id === id ? { ...a, status } : a));
-    setViewItem(null);
+  const { data, isLoading: loading } = useApprovals(params);
+  const approvals: Approval[] = data?.approvals ?? [];
+  const stats = data?.stats ?? { pending: 0, approvedToday: 0, rejected: 0, escalated: 0 };
+  const pagination = data?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
+
+  const updateApproval = useUpdateApproval();
+
+  const handleSearchChange = (value: string) => { setSearch(value); setPage(1); };
+  const handleStatusChange = (value: string) => { setStatusFilter(value); setPage(1); };
+  const handleTypeChange   = (value: string) => { setTypeFilter(value);   setPage(1); };
+
+  const handleAction = (id: string, status: string) => {
+    updateApproval.mutate({ id, status }, {
+      onSuccess: () => { setViewItem(null); toast.success(`Approval ${status.toLowerCase()} successfully`); },
+      onError: (err) => toast.error(extractError(err, 'Failed to update approval')),
+    });
   };
 
   const statCards = [
@@ -77,7 +87,7 @@ export default function ApprovalsPage() {
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         <div style={{ display: 'flex', gap: '2px', padding: '10px 16px', borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
           {['ALL', ...TYPES].map((t) => (
-            <button key={t} onClick={() => setTypeFilter(t)} style={{ padding: '6px 14px', borderRadius: '20px', border: 'none', backgroundColor: typeFilter === t ? '#0d7470' : 'transparent', color: typeFilter === t ? 'white' : '#64748b', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', whiteSpace: 'nowrap' }}>
+            <button key={t} onClick={() => handleTypeChange(t)} style={{ padding: '6px 14px', borderRadius: '20px', border: 'none', backgroundColor: typeFilter === t ? '#0d7470' : 'transparent', color: typeFilter === t ? 'white' : '#64748b', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif', whiteSpace: 'nowrap' }}>
               {t === 'ALL' ? 'All Request' : t}
             </button>
           ))}
@@ -87,9 +97,9 @@ export default function ApprovalsPage() {
         <div style={{ padding: '12px 18px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: '180px' }}>
             <Search size={13} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee..." style={{ width: '100%', paddingLeft: '34px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
+            <input value={search} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ width: '100%', paddingLeft: '34px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
           </div>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectStyle}>
+          <select value={statusFilter} onChange={(e) => handleStatusChange(e.target.value)} style={selectStyle}>
             <option value="ALL">All Status</option>
             <option value="Pending">Pending</option>
             <option value="Approved">Approved</option>
@@ -114,7 +124,7 @@ export default function ApprovalsPage() {
                   const av = getAv(a.employee.user.name);
                   const pc = PRIORITY_COLOR[a.priority] ?? PRIORITY_COLOR['P1']!;
                   return (
-                    <tr key={a.id} style={{ borderBottom: i < approvals.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                    <tr key={a.id} onClick={() => setViewItem(a)} style={{ borderBottom: i < approvals.length - 1 ? '1px solid #f8fafc' : 'none', cursor: 'pointer' }}>
                       <td style={{ padding: '12px 18px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: av.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: av.color, fontWeight: 700, fontSize: '10px', flexShrink: 0 }}>{initials(a.employee.user.name)}</div>
@@ -127,10 +137,9 @@ export default function ApprovalsPage() {
                       <td style={{ padding: '12px 18px' }}><span style={{ padding: '3px 8px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, backgroundColor: pc.bg, color: pc.color }}>{a.priority}</span></td>
                       <td style={{ padding: '12px 18px' }}>
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          <button onClick={() => setViewItem(a)} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Eye size={13} /></button>
                           {a.status === 'Pending' && <>
-                            <button onClick={() => void handleAction(a.id, 'Approved')} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#15803d' }}><CheckCircle2 size={13} /></button>
-                            <button onClick={() => void handleAction(a.id, 'Rejected')} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#b91c1c' }}><XCircle size={13} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); void handleAction(a.id, 'Approved'); }} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#15803d' }}><CheckCircle2 size={13} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); void handleAction(a.id, 'Rejected'); }} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#b91c1c' }}><XCircle size={13} /></button>
                           </>}
                         </div>
                       </td>
@@ -142,6 +151,14 @@ export default function ApprovalsPage() {
           </div>
         )}
       </div>
+
+      <PaginationBar
+        page={pagination.page}
+        totalPages={pagination.totalPages}
+        total={pagination.total}
+        limit={limit}
+        onPageChange={(p) => setPage(p)}
+      />
 
       {/* Detail Modal */}
       {viewItem && (

@@ -1,5 +1,8 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { useAuthStore } from '../../store/authStore';
+import api from '../../api/axios';
+import { extractError } from '../../utils/errorUtils';
 
 type Tab = 'Profile' | 'Notifications' | 'Security';
 const TABS: Tab[] = ['Profile', 'Notifications', 'Security'];
@@ -41,7 +44,7 @@ const fieldStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', bo
 const labelStyle: React.CSSProperties = { fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '4px', display: 'block' };
 
 export default function FinanceSettingsPage() {
-  const { user } = useAuthStore();
+  const { user, setUser } = useAuthStore();
   const [tab, setTab] = useState<Tab>('Profile');
   const [notifs, setNotifs] = useState<Record<string, boolean>>({
     payrollProcessing: true, payrollErrors: true, salaryRevision: false,
@@ -50,6 +53,8 @@ export default function FinanceSettingsPage() {
   });
   const [show2FA] = useState(false);
   const [pwForm, setPwForm] = useState({ current: '', next: '', confirm: '' });
+  const [editName,  setEditName]  = useState(user?.name ?? '');
+  const [editEmail, setEditEmail] = useState(user?.email ?? '');
   const name = user?.name ?? 'Finance Admin';
   const av = getAv(name);
 
@@ -89,16 +94,23 @@ export default function FinanceSettingsPage() {
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-                <div><label style={labelStyle}>Full Name</label><input defaultValue={name} style={fieldStyle} /></div>
-                <div><label style={labelStyle}>Email Address</label><input defaultValue={user?.email ?? ''} style={fieldStyle} /></div>
+                <div><label style={labelStyle}>Full Name</label><input value={editName} onChange={(e) => setEditName(e.target.value)} style={fieldStyle} /></div>
+                <div><label style={labelStyle}>Email Address</label><input value={editEmail} onChange={(e) => setEditEmail(e.target.value)} style={fieldStyle} /></div>
                 <div><label style={labelStyle}>Role</label><input value="Finance Admin" readOnly style={{ ...fieldStyle, backgroundColor: '#f1f5f9', color: '#94a3b8' }} /></div>
-                <div><label style={labelStyle}>Employee ID</label><input value="FIN-001" readOnly style={{ ...fieldStyle, backgroundColor: '#f1f5f9', color: '#94a3b8' }} /></div>
-                <div><label style={labelStyle}>Department</label><input value="Finance & Payroll" readOnly style={{ ...fieldStyle, backgroundColor: '#f1f5f9', color: '#94a3b8' }} /></div>
-                <div><label style={labelStyle}>Phone Number</label><input defaultValue="+91 98765 43210" style={fieldStyle} /></div>
+                <div><label style={labelStyle}>Employee ID</label><input value="—" readOnly style={{ ...fieldStyle, backgroundColor: '#f1f5f9', color: '#94a3b8' }} /></div>
+                <div><label style={labelStyle}>Department</label><input value="—" readOnly style={{ ...fieldStyle, backgroundColor: '#f1f5f9', color: '#94a3b8' }} /></div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <button style={{ padding: '9px 20px', backgroundColor: '#0d7470', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Save Changes</button>
+                <button onClick={async () => {
+                  try {
+                    await api.patch('/auth/me', { name: editName, email: editEmail });
+                    setUser({ name: editName, email: editEmail });
+                    toast.success('Profile saved successfully');
+                  } catch (err) {
+                    toast.error(extractError(err, 'Failed to save profile'));
+                  }
+                }} style={{ padding: '9px 20px', backgroundColor: '#0d7470', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Save Changes</button>
               </div>
             </div>
           )}
@@ -143,7 +155,17 @@ export default function FinanceSettingsPage() {
                     <label style={labelStyle}>Confirm New Password</label>
                     <input type="password" value={pwForm.confirm} onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))} placeholder="Re-enter new password" style={fieldStyle} />
                   </div>
-                  <button style={{ alignSelf: 'flex-end', padding: '9px 20px', backgroundColor: '#0d7470', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Update Password</button>
+                  <button onClick={async () => {
+                    if (pwForm.next !== pwForm.confirm) { toast.error('Passwords do not match'); return; }
+                    if (pwForm.next.length < 8) { toast.error('New password must be at least 8 characters'); return; }
+                    try {
+                      await api.post('/auth/change-password', { currentPassword: pwForm.current, newPassword: pwForm.next });
+                      toast.success('Password updated successfully');
+                      setPwForm({ current: '', next: '', confirm: '' });
+                    } catch (err) {
+                      toast.error(extractError(err, 'Failed to update password'));
+                    }
+                  }} style={{ alignSelf: 'flex-end', padding: '9px 20px', backgroundColor: '#0d7470', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Update Password</button>
                 </div>
               </div>
 

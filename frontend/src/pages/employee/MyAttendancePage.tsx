@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
-import { employeeApi, type AttendanceRecord } from '../../api/employee';
-import { Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { type AttendanceRecord, type TodayAttendance } from '../../api/employee';
+import { Loader2, LogIn, LogOut } from 'lucide-react';
+import { useMyAttendance, useTodayAttendance } from '../../hooks/queries/useEmployeeQueries';
+import { useCheckIn, useCheckOut } from '../../hooks/mutations/useEmployeeMutations';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -17,18 +19,20 @@ export default function MyAttendancePage() {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year,  setYear]  = useState(now.getFullYear());
-  const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [stats,   setStats]   = useState({ present: 0, late: 0, absent: 0, totalHours: 0, workingDays: 0 });
-  const [loading, setLoading] = useState(true);
-  const [view,    setView]    = useState<'table' | 'summary'>('table');
+  const [view,  setView]  = useState<'table' | 'summary'>('table');
 
-  useEffect(() => {
-    setLoading(true);
-    employeeApi.getAttendance({ month: String(month), year: String(year) })
-      .then(({ data }) => { setRecords(data.records); setStats(data.stats); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [month, year]);
+  const { data: todayData, isLoading: todayLoading } = useTodayAttendance();
+  const { data: attData,   isLoading: loading       } = useMyAttendance({ month: String(month), year: String(year) });
+  const checkIn  = useCheckIn();
+  const checkOut = useCheckOut();
+
+  const today   = (todayData as { record?: TodayAttendance } | undefined)?.record ?? null;
+  const records = ((attData as { records?: AttendanceRecord[] } | undefined)?.records ?? []) as AttendanceRecord[];
+  const stats   = ((attData as { stats?: { present: number; late: number; absent: number; totalHours: number; workingDays: number } } | undefined)?.stats) ?? { present: 0, late: 0, absent: 0, totalHours: 0, workingDays: 0 };
+  const actionLoading = checkIn.isPending || checkOut.isPending;
+
+  const handleCheckIn  = () => { checkIn.mutate();  };
+  const handleCheckOut = () => { checkOut.mutate(); };
 
   const attendancePct = stats.workingDays > 0 ? Math.round((stats.present + stats.late) / stats.workingDays * 100) : 0;
 
@@ -46,6 +50,46 @@ export default function MyAttendancePage() {
           <select value={year} onChange={(e) => setYear(Number(e.target.value))} style={{ padding: '7px 12px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#374151', backgroundColor: 'white', cursor: 'pointer', outline: 'none', fontFamily: 'Inter, sans-serif' }}>
             <option>2026</option><option>2025</option>
           </select>
+        </div>
+      </div>
+
+      {/* Today check-in/out card */}
+      <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+        <div>
+          <p style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>Today — {now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+          {todayLoading ? (
+            <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>Loading...</p>
+          ) : today ? (
+            <div style={{ display: 'flex', gap: '16px', marginTop: '6px' }}>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                Check In: <strong style={{ color: '#0f172a' }}>{today.checkIn ?? '—'}</strong>
+              </span>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>
+                Check Out: <strong style={{ color: '#0f172a' }}>{today.checkOut ?? '—'}</strong>
+              </span>
+              <span style={{ padding: '2px 8px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: today.status === 'Present' ? '#f0fdf4' : today.status === 'Late' ? '#fff7ed' : '#fef2f2', color: today.status === 'Present' ? '#15803d' : today.status === 'Late' ? '#c2410c' : '#b91c1c' }}>{today.status}</span>
+            </div>
+          ) : (
+            <p style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>No check-in recorded yet</p>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+          <button
+            onClick={handleCheckIn}
+            disabled={actionLoading || !!today?.checkIn}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 16px', backgroundColor: today?.checkIn ? '#f1f5f9' : '#0d7470', color: today?.checkIn ? '#94a3b8' : 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: today?.checkIn || actionLoading ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif' }}
+          >
+            {actionLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <LogIn size={14} />}
+            Check In
+          </button>
+          <button
+            onClick={handleCheckOut}
+            disabled={actionLoading || !today?.checkIn || !!today?.checkOut}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 16px', backgroundColor: (!today?.checkIn || today?.checkOut) ? '#f1f5f9' : '#dc2626', color: (!today?.checkIn || today?.checkOut) ? '#94a3b8' : 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: (!today?.checkIn || today?.checkOut || actionLoading) ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif' }}
+          >
+            <LogOut size={14} />
+            Check Out
+          </button>
         </div>
       </div>
 

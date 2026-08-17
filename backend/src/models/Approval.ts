@@ -8,7 +8,14 @@ const approvalSchema = new Schema({
   date: { type: Date, default: Date.now },
   priority: { type: String, default: 'P1' },
   status: { type: String, default: 'Pending' },
+  workflowType: { type: String, default: 'correction' },
+  workflowStep: { type: Number, default: 1 },
+  pendingRole: { type: String, default: 'SUPERVISOR' },
 }, { timestamps: true });
+
+approvalSchema.index({ companyId: 1, createdAt: -1 });
+approvalSchema.index({ companyId: 1, status: 1 });
+approvalSchema.index({ employeeId: 1, createdAt: -1 });
 
 approvalSchema.set('toJSON', {
   virtuals: true,

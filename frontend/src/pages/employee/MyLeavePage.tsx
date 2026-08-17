@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
-import { employeeApi, type MyLeave, type LeaveBalance } from '../../api/employee';
+import { useState } from 'react';
+import { type MyLeave, type LeaveBalance } from '../../api/employee';
 import { Loader2, Plus, X } from 'lucide-react';
+import { extractError } from '../../utils/errorUtils';
+import { useMyLeaves } from '../../hooks/queries/useEmployeeQueries';
+import { useApplyLeave } from '../../hooks/mutations/useEmployeeMutations';
 
 const STATUS_META: Record<string, { bg: string; color: string }> = {
   Pending:  { bg: '#fef9c3', color: '#854d0e' },
@@ -13,37 +16,27 @@ const LEAVE_TYPES = ['Casual', 'Sick', 'Earned', 'Optional'];
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
 export default function MyLeavePage() {
-  const [leaves,  setLeaves]  = useState<MyLeave[]>([]);
-  const [balance, setBalance] = useState<LeaveBalance[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showApply, setShowApply] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({ leaveType: 'Casual', startDate: '', endDate: '', reason: '' });
+  const [form, setForm]           = useState({ leaveType: 'Casual', startDate: '', endDate: '', reason: '' });
   const [formError, setFormError] = useState('');
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data } = await employeeApi.getLeaves();
-      setLeaves(data.leaves);
-      setBalance(data.balance);
-    } finally { setLoading(false); }
-  }, []);
+  const { data: leaveData, isLoading: loading } = useMyLeaves();
+  const applyLeave = useApplyLeave();
 
-  useEffect(() => { void load(); }, [load]);
+  const leaves  = ((leaveData as { leaves?: MyLeave[] } | undefined)?.leaves   ?? []) as MyLeave[];
+  const balance = ((leaveData as { balance?: LeaveBalance[] } | undefined)?.balance ?? []) as LeaveBalance[];
 
-  const handleApply = async () => {
+  const handleApply = () => {
     if (!form.startDate || !form.endDate || !form.reason) { setFormError('All fields are required'); return; }
     if (form.endDate < form.startDate) { setFormError('End date must be after start date'); return; }
-    setSubmitting(true);
     setFormError('');
-    try {
-      await employeeApi.applyLeave(form);
-      setShowApply(false);
-      setForm({ leaveType: 'Casual', startDate: '', endDate: '', reason: '' });
-      await load();
-    } catch { setFormError('Failed to submit. Try again.'); }
-    finally { setSubmitting(false); }
+    applyLeave.mutate(form, {
+      onSuccess: () => {
+        setShowApply(false);
+        setForm({ leaveType: 'Casual', startDate: '', endDate: '', reason: '' });
+      },
+      onError: (err) => setFormError(extractError(err, 'Failed to submit leave request')),
+    });
   };
 
   const balanceColors = ['#0d7470', '#2563eb', '#ea580c', '#8b5cf6'];
@@ -153,8 +146,8 @@ export default function MyLeavePage() {
 
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
               <button onClick={() => { setShowApply(false); setFormError(''); }} style={{ flex: 1, padding: '10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
-              <button onClick={() => void handleApply()} disabled={submitting} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: '8px', backgroundColor: submitting ? '#5fa8a5' : '#0d7470', color: 'white', fontSize: '13px', fontWeight: 600, cursor: submitting ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-                {submitting ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Submitting...</> : 'Submit Request'}
+              <button onClick={() => handleApply()} disabled={applyLeave.isPending} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: '8px', backgroundColor: applyLeave.isPending ? '#5fa8a5' : '#0d7470', color: 'white', fontSize: '13px', fontWeight: 600, cursor: applyLeave.isPending ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                {applyLeave.isPending ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Submitting...</> : 'Submit Request'}
               </button>
             </div>
           </div>

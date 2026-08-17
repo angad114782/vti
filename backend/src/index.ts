@@ -7,7 +7,9 @@ import compression from 'compression';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import mongoose from 'mongoose';
+import path from 'path';
 import connectDB from './utils/db';
+import { errorHandler } from './core/errorHandler';
 
 import authRoutes from './routes/auth.routes';
 import companiesRoutes from './routes/companies.routes';
@@ -30,9 +32,23 @@ if (missing.length) {
 
 const isProd = process.env.NODE_ENV === 'production';
 
+if (isProd && !process.env.CLIENT_URL) {
+  console.error('Missing required env var in production: CLIENT_URL');
+  process.exit(1);
+}
+
+const allowedOrigin = process.env.CLIENT_URL || 'http://localhost:5173';
+
 // ── App ─────────────────────────────────────────────────────────
 const app  = express();
 const PORT = process.env.PORT || 5001;
+
+// Request ID — attached before all routes so it's available in error handler and logs
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  req.requestId = `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  _res.setHeader('X-Request-ID', req.requestId);
+  next();
+});
 
 // Security headers
 app.use(helmet());
@@ -43,10 +59,16 @@ app.use(compression() as unknown as express.RequestHandler);
 // Request logging
 app.use(morgan(isProd ? 'combined' : 'dev'));
 
-// CORS
+// CORS — reject unknown origins in all environments
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: (origin, cb) => {
+    // Allow server-to-server requests (no Origin header) and the configured client
+    if (!origin || origin === allowedOrigin) return cb(null, true);
+    cb(new Error(`CORS: origin ${origin} not allowed`));
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 app.use(express.json({ limit: '10mb' }));
@@ -69,6 +91,7 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth/login',   authLimiter);
 app.use('/api/auth/refresh', authLimiter);
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // ── Routes ──────────────────────────────────────────────────────
 app.use('/api/auth',          authRoutes);
@@ -82,26 +105,34 @@ app.use('/api/finance',       financeRoutes);
 app.use('/api/employee',      employeeRoutes);
 app.use('/api/company-admin', companyAdminRoutes);
 
-app.get('/api/health', (_req, res) => {
-  res.json({
-    status: 'ok',
-    db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+// Liveness — is the process alive?
+app.get('/api/health/live', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Readiness — is the process ready to serve traffic?
+app.get('/api/health/ready', (_req, res) => {
+  const dbOk = mongoose.connection.readyState === 1;
+  res.status(dbOk ? 200 : 503).json({
+    status: dbOk ? 'ok' : 'degraded',
+    db: dbOk ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString(),
   });
 });
 
-// 404 handler
-app.use((_req, res) => {
-  res.status(404).json({ message: 'Route not found' });
+// Keep the legacy /api/health for backward compatibility with any existing monitors
+app.get('/api/health', (_req, res) => {
+  const dbOk = mongoose.connection.readyState === 1;
+  res.json({ status: 'ok', db: dbOk ? 'connected' : 'disconnected', timestamp: new Date().toISOString() });
 });
 
-// Global error handler
-app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({
-    message: isProd ? 'Internal server error' : err.message,
-  });
+// 404 handler
+app.use((_req, res) => {
+  res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Route not found' } });
 });
+
+// Centralized error handler — must be last and have 4 params
+app.use(errorHandler as (err: unknown, req: Request, res: Response, next: NextFunction) => void);
 
 // ── Start ────────────────────────────────────────────────────────
 connectDB().then(() => {

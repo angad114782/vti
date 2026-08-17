@@ -1,44 +1,49 @@
 import { useState } from 'react';
-import { Search, Eye, Download } from 'lucide-react';
+import { Search, Download, Loader2, X } from 'lucide-react';
+import { type Payslip } from '../../../api/hr';
+import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
+import PaginationBar from '../../../components/data/Pagination';
+import { useHrPayslips } from '../../../hooks/queries/useHrQueries';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const YEARS  = ['2024','2025','2026'];
 const DEPTS  = ['All Departments','Engineering','Operations','HR','Finance','Sales','Support'];
-const TYPES  = ['All Employees','Permanent Staff','Contract Workers'];
+const TYPES  = ['All Employees','Permanent','Contract'];
 
-const PAYSLIPS = [
-  { id: 'PS-FEB26-001', name: 'Ankita Yadav',  dept: 'Engineering', period: 'Feb 2026', gross: 95000,  deductions: 19600, net: 75400, status: 'Paid'       },
-  { id: 'PS-FEB26-002', name: 'Rohan Verma',   dept: 'Engineering', period: 'Feb 2026', gross: 88000,  deductions: 18400, net: 69600, status: 'Processing'  },
-  { id: 'PS-FEB26-003', name: 'Priya Singh',   dept: 'HR',          period: 'Feb 2026', gross: 80000,  deductions: 16400, net: 63600, status: 'Paid'        },
-  { id: 'PS-FEB26-004', name: 'Amit Patel',    dept: 'Finance',     period: 'Feb 2026', gross: 75000,  deductions: 14800, net: 60200, status: 'Paid'        },
-  { id: 'PS-FEB26-005', name: 'Sneha Mehta',   dept: 'Operations',  period: 'Feb 2026', gross: 65000,  deductions: 13000, net: 52000, status: 'Processing'  },
-  { id: 'PS-FEB26-006', name: 'Karan Joshi',   dept: 'Sales',       period: 'Feb 2026', gross: 58000,  deductions: 11040, net: 46960, status: 'Paid'        },
-  { id: 'PS-FEB26-007', name: 'Divya Sharma',  dept: 'Support',     period: 'Feb 2026', gross: 52000,  deductions: 9240,  net: 42760, status: 'Paid'        },
-  { id: 'PS-FEB26-008', name: 'Ananya Rao',    dept: 'Sales',       period: 'Feb 2026', gross: 88000,  deductions: 17960, net: 70040, status: 'Paid'        },
-  { id: 'PS-FEB26-009', name: 'Vikram Nair',   dept: 'Engineering', period: 'Feb 2026', gross: 48000,  deductions: 8160,  net: 39840, status: 'On Hold'     },
-  { id: 'PS-FEB26-010', name: 'Alex Johnson',  dept: 'Operations',  period: 'Feb 2026', gross: 45000,  deductions: 7960,  net: 37040, status: 'Paid'        },
-];
-
-const STATUS_STYLE: Record<string, { bg: string; color: string; border: string }> = {
-  Paid:       { bg: '#dcfce7', color: '#15803d', border: 'none' },
-  Processing: { bg: '#fed7aa', color: '#c2410c', border: 'none' },
-  'On Hold':  { bg: '#fef9c3', color: '#a16207', border: 'none' },
+const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
+  Paid:       { bg: '#dcfce7', color: '#15803d' },
+  Processing: { bg: '#fed7aa', color: '#c2410c' },
+  'On Hold':  { bg: '#fef9c3', color: '#a16207' },
+  Pending:    { bg: '#f1f5f9', color: '#475569' },
 };
 
 const fmt = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+const ini = (n: string) => n.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
 export default function CAPayslipsPage() {
-  const [search, setSearch] = useState('');
-  const [month,  setMonth]  = useState('February');
-  const [year,   setYear]   = useState('2026');
-  const [dept,   setDept]   = useState('All Departments');
-  const [type,   setType]   = useState('All Employees');
+  const [search,      setSearch]      = useState('');
+  const [month,       setMonth]       = useState('February');
+  const [year,        setYear]        = useState('2026');
+  const [dept,        setDept]        = useState('All Departments');
+  const [type,        setType]        = useState('All Employees');
+  const [page,        setPage]        = useState(1);
+  const [viewPayslip, setViewPayslip] = useState<Payslip | null>(null);
+  const limit = 20;
 
-  const filtered = PAYSLIPS.filter((p) =>
-    (p.name.toLowerCase().includes(search.toLowerCase()) ||
-     p.id.toLowerCase().includes(search.toLowerCase())) &&
-    (dept === 'All Departments' || p.dept === dept)
-  );
+  const debouncedSearch = useDebouncedValue(search, 300);
+
+  const params: Record<string, string> = { page: String(page), limit: String(limit) };
+  if (debouncedSearch) params.search = debouncedSearch;
+  if (dept !== 'All Departments') params.department = dept;
+  if (type !== 'All Employees') params.employmentType = type;
+
+  const { data, isLoading: loading } = useHrPayslips(params);
+  const payslips   = data?.payslips   ?? [];
+  const pagination = data?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
+
+  const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
+  const handleDeptChange   = (v: string) => { setDept(v); setPage(1); };
+  const handleTypeChange   = (v: string) => { setType(v); setPage(1); };
 
   const selectStyle: React.CSSProperties = {
     padding: '8px 28px 8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px',
@@ -54,7 +59,7 @@ export default function CAPayslipsPage() {
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>Payslip History</h1>
-            <span style={{ padding: '2px 10px', backgroundColor: '#eff6ff', color: '#2563eb', borderRadius: '12px', fontSize: '11px', fontWeight: 700 }}>{filtered.length} Records</span>
+            <span style={{ padding: '2px 10px', backgroundColor: '#eff6ff', color: '#2563eb', borderRadius: '12px', fontSize: '11px', fontWeight: 700 }}>{pagination.total} Records</span>
           </div>
           <p style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>View and download payslips for all employees.</p>
         </div>
@@ -67,11 +72,7 @@ export default function CAPayslipsPage() {
       <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ position: 'relative' }}>
           <Search size={13} style={{ position: 'absolute', left: '9px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-          <input
-            value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name or ID..."
-            style={{ paddingLeft: '30px', paddingRight: '10px', paddingTop: '8px', paddingBottom: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', width: '200px' }}
-          />
+          <input value={search} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search by name or ID..." style={{ paddingLeft: '30px', paddingRight: '10px', paddingTop: '8px', paddingBottom: '8px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', width: '200px' }} />
         </div>
         <select value={month} onChange={(e) => setMonth(e.target.value)} style={selectStyle}>
           {MONTHS.map((m) => <option key={m}>{m}</option>)}
@@ -79,60 +80,61 @@ export default function CAPayslipsPage() {
         <select value={year} onChange={(e) => setYear(e.target.value)} style={selectStyle}>
           {YEARS.map((y) => <option key={y}>{y}</option>)}
         </select>
-        <select value={type} onChange={(e) => setType(e.target.value)} style={selectStyle}>
+        <select value={type} onChange={(e) => handleTypeChange(e.target.value)} style={selectStyle}>
           {TYPES.map((t) => <option key={t}>{t}</option>)}
         </select>
-        <select value={dept} onChange={(e) => setDept(e.target.value)} style={selectStyle}>
+        <select value={dept} onChange={(e) => handleDeptChange(e.target.value)} style={selectStyle}>
           {DEPTS.map((d) => <option key={d}>{d}</option>)}
         </select>
       </div>
 
       {/* Table */}
       <div style={{ backgroundColor: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ backgroundColor: '#f8fafc' }}>
-              {['PAYSLIP ID', 'EMPLOYEE', 'PERIOD', 'GROSS', 'DEDUCTIONS', 'NET PAY', 'STATUS', 'ACTIONS'].map((h) => (
-                <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((p, i) => {
-              const sc = STATUS_STYLE[p.status] ?? STATUS_STYLE['Paid']!;
-              return (
-                <tr key={p.id} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa' }}>
-                  <td style={{ padding: '11px 14px', fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace', borderBottom: '1px solid #f1f5f9' }}>{p.id}</td>
-                  <td style={{ padding: '11px 14px', borderBottom: '1px solid #f1f5f9' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#f0fdfa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 700, color: '#0d7470', flexShrink: 0 }}>
-                        {p.name.split(' ').map((w) => w[0]).join('')}
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '60px' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} color="#0d7470" /></div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ backgroundColor: '#f8fafc' }}>
+                {['PAYSLIP ID', 'EMPLOYEE', 'PERIOD', 'NET PAY', 'STATUS'].map((h) => (
+                  <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {payslips.map((p, i) => {
+                const sc = STATUS_STYLE[p.status] ?? STATUS_STYLE['Pending']!;
+                return (
+                  <tr key={p.id} onClick={() => setViewPayslip(p)} style={{ backgroundColor: i % 2 === 0 ? 'white' : '#fafafa', cursor: 'pointer' }}>
+                    <td style={{ padding: '11px 14px', fontSize: '11px', color: '#94a3b8', fontFamily: 'monospace', borderBottom: '1px solid #f1f5f9' }}>{p.payslipId}</td>
+                    <td style={{ padding: '11px 14px', borderBottom: '1px solid #f1f5f9' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: '#f0fdfa', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 700, color: '#0d7470', flexShrink: 0 }}>
+                          {ini(p.employee.user.name)}
+                        </div>
+                        <p style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>{p.employee.user.name}</p>
                       </div>
-                      <div>
-                        <p style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>{p.name}</p>
-                        <p style={{ fontSize: '10px', color: '#94a3b8' }}>{p.dept}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '11px 14px', fontSize: '12px', color: '#374151', borderBottom: '1px solid #f1f5f9' }}>{p.period}</td>
-                  <td style={{ padding: '11px 14px', fontSize: '12px', color: '#374151', fontWeight: 500, borderBottom: '1px solid #f1f5f9' }}>{fmt(p.gross)}</td>
-                  <td style={{ padding: '11px 14px', fontSize: '12px', color: '#dc2626', borderBottom: '1px solid #f1f5f9' }}>-{fmt(p.deductions)}</td>
-                  <td style={{ padding: '11px 14px', fontSize: '13px', fontWeight: 700, color: '#0d7470', borderBottom: '1px solid #f1f5f9' }}>{fmt(p.net)}</td>
-                  <td style={{ padding: '11px 14px', borderBottom: '1px solid #f1f5f9' }}>
-                    <span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: 700, backgroundColor: sc.bg, color: sc.color }}>{p.status}</span>
-                  </td>
-                  <td style={{ padding: '11px 14px', borderBottom: '1px solid #f1f5f9' }}>
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0d7470' }}><Eye size={15} /></button>
-                      <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><Download size={15} /></button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    </td>
+                    <td style={{ padding: '11px 14px', fontSize: '12px', color: '#374151', borderBottom: '1px solid #f1f5f9' }}>{p.period}</td>
+                    <td style={{ padding: '11px 14px', fontSize: '13px', fontWeight: 700, color: '#0d7470', borderBottom: '1px solid #f1f5f9' }}>{fmt(p.netPay)}</td>
+                    <td style={{ padding: '11px 14px', borderBottom: '1px solid #f1f5f9' }}>
+                      <span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: 700, backgroundColor: sc.bg, color: sc.color }}>{p.status}</span>
+                    </td>
+                    <td style={{ padding: '11px 14px', borderBottom: '1px solid #f1f5f9' }}>
+                      <button onClick={(e) => e.stopPropagation()} style={{ background: 'none', border: 'none', cursor: 'not-allowed', color: '#94a3b8', opacity: 0.5 }} title="Download (PDF not yet available)"><Download size={15} /></button>
+                    </td>
+                  </tr>
+                );
+              })}
+              {payslips.length === 0 && (
+                <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>No payslips found</td></tr>
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
+
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => setPage(p)} />
 
       {/* Quick actions */}
       <div style={{ backgroundColor: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '14px 18px' }}>
@@ -146,6 +148,33 @@ export default function CAPayslipsPage() {
           ))}
         </div>
       </div>
+
+      {viewPayslip && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '14px', width: '420px', maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+            <div style={{ padding: '20px 22px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: '15px', color: '#0f172a' }}>Payslip Detail</span>
+              <button onClick={() => setViewPayslip(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={18} /></button>
+            </div>
+            <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {([
+                ['Payslip ID',   viewPayslip.payslipId],
+                ['Employee',     viewPayslip.employee.user.name],
+                ['Period',       viewPayslip.period],
+                ['Gross Salary', fmt(viewPayslip.grossSalary)],
+                ['Deductions',   fmt(viewPayslip.totalDeductions)],
+                ['Net Pay',      fmt(viewPayslip.netPay)],
+                ['Status',       viewPayslip.status],
+              ] as [string, string][]).map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>{k}</span>
+                  <span style={{ fontSize: '13px', color: k === 'Net Pay' ? '#0d7470' : '#0f172a', fontWeight: k === 'Net Pay' ? 700 : 500 }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

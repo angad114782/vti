@@ -1,6 +1,10 @@
-import { useState, useEffect } from 'react';
-import { employeeApi, type MyDocument } from '../../api/employee';
+import { useState } from 'react';
+import { type MyDocument } from '../../api/employee';
+import type { Pagination } from '../../api/hr';
 import { Loader2, FileText, Download, Eye, Search } from 'lucide-react';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import PaginationBar from '../../components/data/Pagination';
+import { useMyDocuments } from '../../hooks/queries/useEmployeeQueries';
 
 const CAT_COLORS: Record<string, { bg: string; color: string }> = {
   Policy:    { bg: '#dbeafe', color: '#1d4ed8' },
@@ -13,22 +17,27 @@ const CAT_COLORS: Record<string, { bg: string; color: string }> = {
 
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
+const LIMIT = 20;
+
 export default function DocumentsPage() {
-  const [docs,    setDocs]    = useState<MyDocument[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search,  setSearch]  = useState('');
+  const [search,    setSearch]    = useState('');
   const [catFilter, setCatFilter] = useState('All');
+  const [page,      setPage]      = useState(1);
 
-  useEffect(() => {
-    employeeApi.getDocuments().then(({ data }) => setDocs(data)).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
-  const categories = ['All', ...Array.from(new Set(docs.map((d) => d.category)))];
-  const filtered = docs.filter((d) => {
-    const matchesSearch = d.name.toLowerCase().includes(search.toLowerCase()) || d.category.toLowerCase().includes(search.toLowerCase());
-    const matchesCat    = catFilter === 'All' || d.category === catFilter;
-    return matchesSearch && matchesCat;
-  });
+  const docParams: Record<string, string> = { page: String(page), limit: String(LIMIT) };
+  if (debouncedSearch) docParams.search = debouncedSearch;
+  if (catFilter !== 'All') docParams.category = catFilter;
+
+  const { data, isLoading: loading } = useMyDocuments(docParams);
+  const docs       = ((data as { documents?: MyDocument[] } | undefined)?.documents   ?? []) as MyDocument[];
+  const pagination = ((data as { pagination?: Pagination } | undefined)?.pagination   ?? { total: 0, page: 1, limit: LIMIT, totalPages: 1 }) as Pagination;
+
+  const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
+  const handleCatChange    = (v: string) => { setCatFilter(v); setPage(1); };
+
+  const CATS = ['All', 'Policy', 'HR', 'Finance', 'General', 'Offer', 'Compliance'];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -42,24 +51,24 @@ export default function DocumentsPage() {
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: '180px', maxWidth: '280px' }}>
             <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search documents..." style={{ width: '100%', paddingLeft: '32px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
+            <input value={search} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search documents..." style={{ width: '100%', paddingLeft: '32px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
           </div>
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-            {categories.map((c) => (
-              <button key={c} onClick={() => setCatFilter(c)} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 600, fontFamily: 'Inter, sans-serif', backgroundColor: catFilter === c ? '#0d7470' : '#f1f5f9', color: catFilter === c ? 'white' : '#64748b', transition: 'all 0.15s' }}>{c}</button>
+            {CATS.map((c) => (
+              <button key={c} onClick={() => handleCatChange(c)} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '11px', fontWeight: 600, fontFamily: 'Inter, sans-serif', backgroundColor: catFilter === c ? '#0d7470' : '#f1f5f9', color: catFilter === c ? 'white' : '#64748b', transition: 'all 0.15s' }}>{c}</button>
             ))}
           </div>
         </div>
 
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '60px' }}><Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} color="#0d7470" /></div>
-        ) : filtered.length === 0 ? (
+        ) : docs.length === 0 ? (
           <div style={{ padding: '60px', textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>
-            {docs.length === 0 ? 'No documents available yet.' : 'No documents match your search.'}
+            {pagination.total === 0 ? 'No documents available yet.' : 'No documents match your search.'}
           </div>
         ) : (
           <div style={{ padding: '16px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '12px' }}>
-            {filtered.map((d) => {
+            {docs.map((d) => {
               const cm = CAT_COLORS[d.category] ?? CAT_COLORS['General']!;
               return (
                 <div key={d.id} style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '16px', backgroundColor: 'white', display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -81,8 +90,8 @@ export default function DocumentsPage() {
                       {d.fileSize && <p style={{ fontSize: '10px', color: '#94a3b8', marginTop: '1px' }}>{d.fileSize}</p>}
                     </div>
                     <div style={{ display: 'flex', gap: '6px' }}>
-                      <button style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Eye size={12} /></button>
-                      <button style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: '#0d7470', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}><Download size={12} color="white" /></button>
+                      <button onClick={() => d.fileUrl ? window.open(d.fileUrl, '_blank') : alert(`${d.name}\nCategory: ${d.category}`)} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Eye size={12} /></button>
+                      <button onClick={() => d.fileUrl && window.open(d.fileUrl, '_blank')} disabled={!d.fileUrl} title={d.fileUrl ? 'Download document' : 'No file available'} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: d.fileUrl ? '#0d7470' : '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: d.fileUrl ? 'pointer' : 'not-allowed', opacity: d.fileUrl ? 1 : 0.5 }}><Download size={12} color={d.fileUrl ? 'white' : '#94a3b8'} /></button>
                     </div>
                   </div>
                 </div>
@@ -91,6 +100,8 @@ export default function DocumentsPage() {
           </div>
         )}
       </div>
+
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={LIMIT} onPageChange={(p) => setPage(p)} />
     </div>
   );
 }

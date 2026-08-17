@@ -34,4 +34,13 @@ export const modulesApi = {
 
   updatePermission: (role: string, permission: string, isGranted: boolean) =>
     api.put('/modules/permissions', { role, permission, isGranted }),
+
+  createModule: (data: { name: string; description?: string; availableFor: string[] }) =>
+    api.post<AppModule>('/modules', data),
+
+  updateModule: (id: string, data: { name?: string; description?: string; availableFor?: string[] }) =>
+    api.put<AppModule>(`/modules/${id}`, data),
+
+  deleteModule: (id: string) =>
+    api.delete<{ message: string }>(`/modules/${id}`),
 };

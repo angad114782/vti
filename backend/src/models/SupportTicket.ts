@@ -12,12 +12,19 @@ const supportTicketSchema = new Schema({
   attachment: String,
 }, { timestamps: true });
 
+supportTicketSchema.index({ status: 1, createdAt: -1 });
+supportTicketSchema.index({ priority: 1, status: 1 });
+supportTicketSchema.index({ companyId: 1, createdAt: -1 });
+
 supportTicketSchema.set('toJSON', {
   virtuals: true,
   transform: (_doc: unknown, ret: any) => {
     ret.id = ret._id.toString();
     delete ret._id;
     delete ret.__v;
+    // Rename populated fields to match frontend expectations
+    if (ret.userId !== undefined) { ret.user = ret.userId; delete ret.userId; }
+    if (ret.companyId !== undefined) { ret.company = ret.companyId; delete ret.companyId; }
   },
 });
 

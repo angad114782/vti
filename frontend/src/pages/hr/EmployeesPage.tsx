@@ -1,6 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
-import { hrApi, type Employee } from '../../api/hr';
-import { Search, Plus, Eye, Edit2, X, ChevronDown, Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
+import { type Employee } from '../../api/hr';
+import { Search, Plus, Edit2, X, ChevronDown, Loader2 } from 'lucide-react';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import PaginationBar from '../../components/data/Pagination';
+import { extractError } from '../../utils/errorUtils';
+import { useEmployees } from '../../hooks/queries/useHrQueries';
+import { useCreateEmployee, useUpdateEmployee } from '../../hooks/mutations/useHrMutations';
 
 const DEPARTMENTS = ['Engineering', 'Sales', 'Marketing', 'HR', 'Design', 'Finance'];
 const SHIFTS = ['Morning', 'Evening', 'Night'];
@@ -17,7 +23,7 @@ const fmtCurrency = (n: number | null) => n ? `₹${(n / 100000).toFixed(1)}L` :
 
 // ── Add/Edit Modal ─────────────────────────────────────────────────────────────
 
-function EmployeeModal({ emp, onClose, onSaved }: { emp?: Employee; onClose: () => void; onSaved: () => void }) {
+function EmployeeModal({ emp, onClose }: { emp?: Employee; onClose: () => void }) {
   const isEdit = !!emp;
   const [form, setForm] = useState({
     name: emp?.user.name ?? '', email: emp?.user.email ?? '',
@@ -28,19 +34,27 @@ function EmployeeModal({ emp, onClose, onSaved }: { emp?: Employee; onClose: () 
     employmentType: emp?.employmentType ?? 'Permanent',
     accountHolder: emp?.accountHolder ?? '', bankName: emp?.bankName ?? '', branchName: emp?.branchName ?? '',
   });
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  const handleSubmit = async () => {
+  const createEmployee = useCreateEmployee();
+  const updateEmployee = useUpdateEmployee();
+  const loading = createEmployee.isPending || updateEmployee.isPending;
+
+  const handleSubmit = () => {
     if (!form.name || (!isEdit && !form.email)) { setError('Name and email are required'); return; }
-    setLoading(true); setError('');
-    try {
-      if (isEdit) await hrApi.updateEmployee(emp!.id, form as Record<string, string>);
-      else await hrApi.createEmployee(form as Record<string, string>);
-      onSaved(); onClose();
-    } catch { setError('Failed to save. Try again.'); }
-    finally { setLoading(false); }
+    setError('');
+    if (isEdit) {
+      updateEmployee.mutate({ id: emp!.id, data: form as Record<string, string> }, {
+        onSuccess: () => onClose(),
+        onError: (err) => setError(extractError(err, 'Failed to save employee')),
+      });
+    } else {
+      createEmployee.mutate(form as Record<string, string>, {
+        onSuccess: () => { toast.success('Employee added'); onClose(); },
+        onError: (err) => setError(extractError(err, 'Failed to save employee')),
+      });
+    }
   };
 
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#0f172a' };
@@ -127,7 +141,7 @@ function EmployeeModal({ emp, onClose, onSaved }: { emp?: Employee; onClose: () 
 
         <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '10px', justifyContent: 'flex-end', position: 'sticky', bottom: 0, backgroundColor: 'white' }}>
           <button onClick={onClose} style={{ padding: '9px 18px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
-          <button onClick={() => void handleSubmit()} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 20px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', opacity: loading ? 0.7 : 1 }}>
+          <button onClick={handleSubmit} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 20px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', opacity: loading ? 0.7 : 1 }}>
             {loading && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
             {isEdit ? 'Save Changes' : 'Add Employee'}
           </button>
@@ -140,26 +154,25 @@ function EmployeeModal({ emp, onClose, onSaved }: { emp?: Employee; onClose: () 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function EmployeesPage() {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, departments: 0 });
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('ALL');
-  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const limit = 20;
   const [modal, setModal] = useState<{ open: boolean; emp?: Employee }>({ open: false });
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    try {
-      const p: Record<string, string> = {};
-      if (search) p.search = search;
-      if (deptFilter !== 'ALL') p.department = deptFilter;
-      const { data } = await hrApi.getEmployees(p);
-      setEmployees(data.employees);
-      setStats(data.stats);
-    } finally { setLoading(false); }
-  }, [search, deptFilter]);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
-  useEffect(() => { void fetch(); }, [fetch]);
+  const params: Record<string, string> = { page: String(page), limit: String(limit) };
+  if (debouncedSearch) params.search = debouncedSearch;
+  if (deptFilter !== 'ALL') params.department = deptFilter;
+
+  const { data, isLoading } = useEmployees(params);
+  const employees = data?.employees ?? [];
+  const stats = data?.stats ?? { total: 0, active: 0, inactive: 0, departments: 0 };
+  const pagination = data?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
+
+  const handleSearchChange = (value: string) => { setSearch(value); setPage(1); };
+  const handleDeptChange = (dept: string) => { setDeptFilter(dept); setPage(1); };
 
 
   return (
@@ -178,20 +191,20 @@ export default function EmployeesPage() {
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '12px 16px', borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
           {['ALL', ...DEPARTMENTS].map((d) => (
-            <button key={d} onClick={() => setDeptFilter(d)} style={{ padding: '5px 14px', borderRadius: '20px', border: '1px solid transparent', backgroundColor: deptFilter === d ? '#0d7470' : '#f1f5f9', color: deptFilter === d ? 'white' : '#475569', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-              {d === 'ALL' ? 'All' : d} {d !== 'ALL' && <span style={{ opacity: 0.7 }}>{employees.filter((e) => e.department === d).length}</span>}
+            <button key={d} onClick={() => handleDeptChange(d)} style={{ padding: '5px 14px', borderRadius: '20px', border: '1px solid transparent', backgroundColor: deptFilter === d ? '#0d7470' : '#f1f5f9', color: deptFilter === d ? 'white' : '#475569', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+              {d === 'ALL' ? 'All' : d}
             </button>
           ))}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
             <div style={{ position: 'relative' }}>
               <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name..." style={{ paddingLeft: '32px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151' }} />
+              <input value={search} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search by name..." style={{ paddingLeft: '32px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151' }} />
             </div>
           </div>
         </div>
 
         {/* Table */}
-        {loading ? (
+        {isLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '60px', gap: '10px', color: '#64748b' }}>
             <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /><span style={{ fontSize: '14px' }}>Loading...</span>
           </div>
@@ -200,7 +213,7 @@ export default function EmployeesPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8fafc' }}>
-                  {['Employee Name', 'Role', 'Joining Date', 'Contact Information', 'Status', 'Actions'].map((h) => (
+                  {['Employee Name', 'Role', 'Joining Date', 'Contact Information', 'Status', ''].map((h) => (
                     <th key={h} style={{ textAlign: 'left', padding: '10px 18px', fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -209,7 +222,7 @@ export default function EmployeesPage() {
                 {employees.map((e, i) => {
                   const av = getAv(e.user.name);
                   return (
-                    <tr key={e.id} style={{ borderBottom: i < employees.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                    <tr key={e.id} onClick={() => setModal({ open: true, emp: e })} style={{ borderBottom: i < employees.length - 1 ? '1px solid #f8fafc' : 'none', cursor: 'pointer' }}>
                       <td style={{ padding: '13px 18px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <div style={{ width: '34px', height: '34px', borderRadius: '50%', backgroundColor: av.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: av.color, fontWeight: 700, fontSize: '11px', flexShrink: 0 }}>{initials(e.user.name)}</div>
@@ -229,10 +242,7 @@ export default function EmployeesPage() {
                         <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: e.status === 'Active' ? '#dcfce7' : '#f1f5f9', color: e.status === 'Active' ? '#15803d' : '#475569' }}>{e.status}</span>
                       </td>
                       <td style={{ padding: '13px 18px' }}>
-                        <div style={{ display: 'flex', gap: '6px' }}>
-                          <button onClick={() => setModal({ open: true, emp: e })} style={{ width: '30px', height: '30px', borderRadius: '7px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Edit2 size={13} /></button>
-                          <button style={{ width: '30px', height: '30px', borderRadius: '7px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Eye size={13} /></button>
-                        </div>
+                        <button onClick={(e2) => { e2.stopPropagation(); setModal({ open: true, emp: e }); }} style={{ width: '30px', height: '30px', borderRadius: '7px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Edit2 size={13} /></button>
                       </td>
                     </tr>
                   );
@@ -246,7 +256,7 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      {modal.open && <EmployeeModal emp={modal.emp} onClose={() => setModal({ open: false })} onSaved={() => void fetch()} />}
+      {modal.open && <EmployeeModal emp={modal.emp} onClose={() => setModal({ open: false })} />}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { Outlet, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import CompanyAdminSidebar from './CompanyAdminSidebar';
 import { Bell, RefreshCw } from 'lucide-react';
+import { ErrorBoundary } from '../ErrorBoundary';
 
 const avatarColors = [
   { bg: '#eef2ff', color: '#6366f1' }, { bg: '#f0fdf4', color: '#0d7470' },
@@ -45,7 +46,7 @@ export default function CompanyAdminLayout() {
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-          <Outlet />
+          <ErrorBoundary><Outlet /></ErrorBoundary>
         </div>
       </div>
     </div>

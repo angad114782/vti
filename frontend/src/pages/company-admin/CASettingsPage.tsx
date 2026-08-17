@@ -1,7 +1,13 @@
 import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
 import { useAuthStore } from '../../store/authStore';
-import { caApi, type CACompany } from '../../api/companyAdmin';
+import { type PlanData, subscriptionsApi } from '../../api/subscriptions';
+import { getPlanBadge } from '../../utils/planColors';
+import api from '../../api/axios';
 import { Loader2, Building2 } from 'lucide-react';
+import { extractError } from '../../utils/errorUtils';
+import { useCaCompany } from '../../hooks/queries/useCaQueries';
+import { useUpdateCompany } from '../../hooks/mutations/useCaMutations';
 
 type Tab = 'Company Profile' | 'Subscription' | 'Security';
 const TABS: Tab[] = ['Company Profile', 'Subscription', 'Security'];
@@ -10,40 +16,51 @@ const fieldStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', bo
 const readStyle:  React.CSSProperties = { ...fieldStyle, backgroundColor: '#f1f5f9', color: '#94a3b8' };
 const labelStyle: React.CSSProperties = { fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '4px', display: 'block' };
 
-const PLAN_META: Record<string, { color: string; bg: string }> = {
-  BASIC:      { color: '#64748b', bg: '#f1f5f9' },
-  PRO:        { color: '#2563eb', bg: '#eff6ff' },
-  ENTERPRISE: { color: '#7c3aed', bg: '#ede9fe' },
-};
-
 export default function CASettingsPage() {
   const { user } = useAuthStore();
-  const [tab,     setTab]     = useState<Tab>('Company Profile');
-  const [company, setCompany] = useState<CACompany | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving,  setSaving]  = useState(false);
-  const [form,    setForm]    = useState({ name: '', industry: '', email: '', phone: '', address: '' });
-  const [pwForm,  setPwForm]  = useState({ current: '', next: '', confirm: '' });
-  const [pwMsg,   setPwMsg]   = useState('');
+  const [tab,    setTab]    = useState<Tab>('Company Profile');
+  const [plans,  setPlans]  = useState<PlanData[]>([]);
+  const [form,   setForm]   = useState({ name: '', industry: '', email: '', phone: '', address: '' });
+  const [formInitialized, setFormInitialized] = useState(false);
+  const [pwForm,   setPwForm]   = useState({ current: '', next: '', confirm: '' });
+  const [pwMsg,    setPwMsg]    = useState('');
+  const [pwError,  setPwError]  = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
 
+  const { data: company, isLoading: companyLoading } = useCaCompany();
+  const updateCompany = useUpdateCompany();
+
+  const loading = companyLoading;
+
+  // Initialize form when company data arrives
   useEffect(() => {
-    caApi.getCompany().then(({ data }) => {
-      setCompany(data);
-      setForm({ name: data.name, industry: data.industry ?? '', email: data.email ?? '', phone: data.phone ?? '', address: data.address ?? '' });
-    }).catch(() => {}).finally(() => setLoading(false));
+    if (company && !formInitialized) {
+      setForm({
+        name:     company.name          ?? '',
+        industry: company.industry      ?? '',
+        email:    company.email         ?? '',
+        phone:    company.phone         ?? '',
+        address:  company.address       ?? '',
+      });
+      setFormInitialized(true);
+    }
+  }, [company, formInitialized]);
+
+  // Load plans (no hook — keeping direct call)
+  useEffect(() => {
+    subscriptionsApi.getPlans().then(({ data }) => setPlans(data)).catch(() => {});
   }, []);
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const { data } = await caApi.updateCompany(form);
-      setCompany(data);
-    } finally { setSaving(false); }
+  const handleSave = () => {
+    updateCompany.mutate(form, {
+      onSuccess: () => { toast.success('Company profile updated'); },
+      onError: (err) => { toast.error(extractError(err, 'Failed to save company profile')); },
+    });
   };
 
   const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '—';
-  const plan    = company?.subscription?.plan ?? company?.plan ?? 'BASIC';
-  const pm      = PLAN_META[plan] ?? PLAN_META['BASIC']!;
+  const plan    = company?.subscription?.plan ?? company?.plan ?? '';
+  const pm      = getPlanBadge(plan, plans);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -71,7 +88,7 @@ export default function CASettingsPage() {
                   <div>
                     <p style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>{company?.name}</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
-                      <span style={{ padding: '2px 8px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, backgroundColor: pm.bg, color: pm.color }}>{plan}</span>
+                      <span style={{ padding: '2px 8px', borderRadius: '20px', fontSize: '11px', fontWeight: 700, backgroundColor: pm.bg, color: pm.color }}>{pm.label || plan}</span>
                       <span style={{ fontSize: '11px', color: '#64748b' }}>· {company?.status}</span>
                       <span style={{ fontSize: '11px', color: '#64748b' }}>· Max {company?.maxUsers} users</span>
                     </div>
@@ -88,8 +105,8 @@ export default function CASettingsPage() {
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <button onClick={() => void handleSave()} disabled={saving} style={{ padding: '9px 20px', backgroundColor: saving ? '#a5b4fc' : '#6366f1', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {saving ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</> : 'Save Changes'}
+                  <button onClick={handleSave} disabled={updateCompany.isPending} style={{ padding: '9px 20px', backgroundColor: updateCompany.isPending ? '#a5b4fc' : '#6366f1', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: updateCompany.isPending ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {updateCompany.isPending ? <><Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> Saving...</> : 'Save Changes'}
                   </button>
                 </div>
               </div>
@@ -104,7 +121,7 @@ export default function CASettingsPage() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div>
                         <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Current Plan</p>
-                        <p style={{ fontSize: '24px', fontWeight: 800, color: '#6366f1' }}>{plan}</p>
+                        <p style={{ fontSize: '24px', fontWeight: 800, color: '#6366f1' }}>{pm.label || plan}</p>
                         <p style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
                           {company?.subscription ? `₹${company.subscription.amount.toLocaleString('en-IN')} / ${company.subscription.billingCycle}` : 'No billing data'}
                         </p>
@@ -114,7 +131,7 @@ export default function CASettingsPage() {
                   </div>
                   {[
                     { label: 'Billing Cycle', value: company?.subscription?.billingCycle ?? '—' },
-                    { label: 'Plan Start',    value: '1 Jan 2026' },
+                    { label: 'Plan Start',    value: company?.subscription?.startDate ? new Date(company.subscription.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '—' },
                     { label: 'Plan Expiry',   value: fmtDate(company?.subscription?.endDate ?? null) },
                     { label: 'Max Users',     value: String(company?.maxUsers ?? '—') },
                   ].map(({ label, value }) => (
@@ -139,17 +156,28 @@ export default function CASettingsPage() {
               </div>
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '20px' }}>
                 <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '14px' }}>Change Password</h3>
-                {pwMsg && <div style={{ padding: '10px 14px', backgroundColor: pwMsg.includes('success') ? '#f0fdf4' : '#fef2f2', borderRadius: '8px', color: pwMsg.includes('success') ? '#16a34a' : '#dc2626', fontSize: '12px', marginBottom: '12px' }}>{pwMsg}</div>}
+                {pwMsg   && <div style={{ padding: '10px 14px', backgroundColor: '#f0fdf4', borderRadius: '8px', color: '#16a34a', fontSize: '12px', marginBottom: '12px' }}>{pwMsg}</div>}
+                {pwError && <div style={{ padding: '10px 14px', backgroundColor: '#fef2f2', borderRadius: '8px', color: '#dc2626', fontSize: '12px', marginBottom: '12px' }}>{pwError}</div>}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <div><label style={labelStyle}>Current Password</label><input type="password" value={pwForm.current} onChange={(e) => setPwForm((p) => ({ ...p, current: e.target.value }))} placeholder="Enter current password" style={fieldStyle} /></div>
                   <div><label style={labelStyle}>New Password</label><input type="password" value={pwForm.next} onChange={(e) => setPwForm((p) => ({ ...p, next: e.target.value }))} placeholder="Min 8 characters" style={fieldStyle} /></div>
                   <div><label style={labelStyle}>Confirm New Password</label><input type="password" value={pwForm.confirm} onChange={(e) => setPwForm((p) => ({ ...p, confirm: e.target.value }))} placeholder="Re-enter new password" style={fieldStyle} /></div>
-                  <button onClick={() => {
-                    if (pwForm.next !== pwForm.confirm) { setPwMsg('Passwords do not match'); return; }
-                    if (pwForm.next.length < 8) { setPwMsg('Minimum 8 characters required'); return; }
-                    setPwMsg('Password updated successfully!');
-                    setPwForm({ current: '', next: '', confirm: '' });
-                  }} style={{ alignSelf: 'flex-end', padding: '9px 20px', backgroundColor: '#6366f1', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Update Password</button>
+                  <button onClick={async () => {
+                    setPwMsg(''); setPwError('');
+                    if (pwForm.next !== pwForm.confirm) { setPwError('Passwords do not match'); return; }
+                    if (pwForm.next.length < 8) { setPwError('Minimum 8 characters required'); return; }
+                    setPwSaving(true);
+                    try {
+                      await api.post('/auth/change-password', { currentPassword: pwForm.current, newPassword: pwForm.next });
+                      setPwMsg('Password updated successfully!');
+                      setPwForm({ current: '', next: '', confirm: '' });
+                    } catch (err: any) {
+                      setPwError(err?.response?.data?.message ?? 'Failed to update password');
+                    } finally { setPwSaving(false); }
+                  }} disabled={pwSaving} style={{ alignSelf: 'flex-end', padding: '9px 20px', backgroundColor: pwSaving ? '#a5b4fc' : '#6366f1', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: pwSaving ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {pwSaving && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
+                    Update Password
+                  </button>
                 </div>
               </div>
             </div>

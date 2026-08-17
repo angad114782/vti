@@ -8,7 +8,14 @@ const expenseSchema = new Schema({
   description: String,
   receiptUrl: String,
   status: { type: String, default: 'Pending' },
+  workflowType: { type: String, default: 'expense' },
+  workflowStep: { type: Number, default: 1 },
+  pendingRole: { type: String, default: 'MANAGER' },
 }, { timestamps: true });
+
+expenseSchema.index({ companyId: 1, createdAt: -1 });
+expenseSchema.index({ companyId: 1, status: 1 });
+expenseSchema.index({ employeeId: 1, createdAt: -1 });
 
 expenseSchema.set('toJSON', {
   virtuals: true,

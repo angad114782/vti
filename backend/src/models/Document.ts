@@ -11,6 +11,10 @@ const documentSchema = new Schema({
   fileUrl: String,
 }, { timestamps: true });
 
+documentSchema.index({ companyId: 1, createdAt: -1 });
+documentSchema.index({ companyId: 1, visibility: 1 });
+documentSchema.index({ companyId: 1, category: 1 });
+
 documentSchema.set('toJSON', {
   virtuals: true,
   transform: (_doc: unknown, ret: any) => {

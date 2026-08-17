@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
-import { financeApi } from '../../api/finance';
+import { useState } from 'react';
 import type { Payslip } from '../../api/hr';
-import { Eye, Download, Loader2, BarChart2 } from 'lucide-react';
+import { Eye, Download, Loader2, BarChart2, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import PaginationBar from '../../components/data/Pagination';
+import { useFinancePayslips } from '../../hooks/queries/useFinanceQueries';
 
 const fmtPay = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
@@ -21,44 +23,53 @@ const QUICK = [
 
 export default function PayslipsPage() {
   const navigate = useNavigate();
-  const [payslips, setPayslips] = useState<Payslip[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
   const [month, setMonth] = useState('February');
   const [year, setYear] = useState('2026');
   const [dept, setDept] = useState('All Departments');
   const [empType, setEmpType] = useState('All Employees');
-  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit] = useState(20);
 
-  useEffect(() => {
-    financeApi.getPayslips().then(({ data }) => setPayslips(data)).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
-  const filtered = payslips.filter((p) =>
-    p.employee.user.name.toLowerCase().includes(search.toLowerCase()) ||
-    p.payslipId.toLowerCase().includes(search.toLowerCase())
-  );
+  const params: Record<string, string> = { page: String(page), limit: String(limit) };
+  if (debouncedSearch) params.search = debouncedSearch;
+  if (dept !== 'All Departments') params.department = dept;
+  if (empType !== 'All Employees') params.employmentType = empType;
+
+  const { data, isLoading: loading } = useFinancePayslips(params);
+  const payslips: Payslip[] = data?.payslips ?? [];
+  const pagination = data?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
+
+  const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
+  const handleDeptChange   = (v: string) => { setDept(v); setPage(1); };
+  const handleEmpChange    = (v: string) => { setEmpType(v); setPage(1); };
 
   const selStyle: React.CSSProperties = { padding: '6px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#374151', backgroundColor: 'white', cursor: 'pointer', outline: 'none', fontFamily: 'Inter, sans-serif' };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div>
-        <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>Payslip <span style={{ fontSize: '13px', fontWeight: 500, color: '#94a3b8', marginLeft: '6px' }}>{filtered.length} Records</span></h1>
+        <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>Payslip <span style={{ fontSize: '13px', fontWeight: 500, color: '#94a3b8', marginLeft: '6px' }}>{pagination.total} Records</span></h1>
         <p style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>Select the parameters for this payroll cycle</p>
       </div>
 
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         {/* Filters */}
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or ID..." style={{ flex: 1, minWidth: '160px', padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
+          <div style={{ position: 'relative', flex: 1, minWidth: '160px' }}>
+            <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+            <input value={search} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search by name or ID..." style={{ width: '100%', paddingLeft: '32px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
+          </div>
           <select value={month} onChange={(e) => setMonth(e.target.value)} style={selStyle}>
             {['January','February','March','April','May','June','July','August','September','October','November','December'].map((m) => <option key={m}>{m}</option>)}
           </select>
           <select value={year} onChange={(e) => setYear(e.target.value)} style={selStyle}><option>2026</option><option>2025</option></select>
-          <select value={dept} onChange={(e) => setDept(e.target.value)} style={selStyle}>
+          <select value={dept} onChange={(e) => handleDeptChange(e.target.value)} style={selStyle}>
             <option>All Departments</option><option>Engineering</option><option>Sales</option><option>Finance</option>
           </select>
-          <select value={empType} onChange={(e) => setEmpType(e.target.value)} style={selStyle}>
+          <select value={empType} onChange={(e) => handleEmpChange(e.target.value)} style={selStyle}>
             <option>All Employees</option><option>Permanent</option><option>Contract</option>
           </select>
         </div>
@@ -76,10 +87,10 @@ export default function PayslipsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((p, i) => {
+                {payslips.map((p, i) => {
                   const sm = STATUS_META[p.status] ?? STATUS_META['Pending']!;
                   return (
-                    <tr key={p.id} style={{ borderBottom: i < filtered.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                    <tr key={p.id} style={{ borderBottom: i < payslips.length - 1 ? '1px solid #f8fafc' : 'none' }}>
                       <td style={{ padding: '12px 16px' }}><span style={{ fontSize: '13px', fontWeight: 700, color: '#0d7470', fontFamily: 'monospace' }}>{p.payslipId}</span></td>
                       <td style={{ padding: '12px 16px' }}><p style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{p.employee.user.name}</p></td>
                       <td style={{ padding: '12px 16px' }}><span style={{ fontSize: '13px', color: '#374151' }}>{p.period}</span></td>
@@ -94,7 +105,7 @@ export default function PayslipsPage() {
                     </tr>
                   );
                 })}
-                {filtered.length === 0 && (
+                {payslips.length === 0 && (
                   <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>No payslips found</td></tr>
                 )}
               </tbody>
@@ -117,6 +128,8 @@ export default function PayslipsPage() {
           </div>
         </div>
       </div>
+
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => setPage(p)} />
     </div>
   );
 }

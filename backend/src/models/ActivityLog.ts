@@ -10,6 +10,9 @@ const activityLogSchema = new Schema({
   userAgent: String,
 }, { timestamps: { createdAt: true, updatedAt: false } });
 
+activityLogSchema.index({ companyId: 1, createdAt: -1 });
+activityLogSchema.index({ userId: 1, createdAt: -1 });
+
 activityLogSchema.set('toJSON', {
   virtuals: true,
   transform: (_doc: unknown, ret: any) => {

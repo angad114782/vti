@@ -1,25 +1,29 @@
 import { Request, Response } from 'express';
 import SupportTicket from '../models/SupportTicket';
 import Company from '../models/Company';
+import { escapeRegex, clampLimit } from '../utils/query';
+import { getUserId } from '../utils/authContext';
+import { logActivity } from '../utils/activity';
 
 export const getTickets = async (req: Request, res: Response) => {
   const page = (req.query.page as string) || '1';
-  const limit = (req.query.limit as string) || '10';
+  const limit = clampLimit(req.query.limit as string | undefined);
   const search = req.query.search as string | undefined;
   const status = req.query.status as string | undefined;
   const priority = req.query.priority as string | undefined;
   const company = req.query.company as string | undefined;
-  const skip = (parseInt(page) - 1) * parseInt(limit);
+  const skip = (parseInt(page) - 1) * limit;
 
   const where: Record<string, unknown> = {};
   if (status && status !== 'ALL') where.status = status;
   if (priority && priority !== 'ALL') where.priority = priority;
   if (company && company !== 'ALL') where.companyId = company;
   if (search) {
+    const re = escapeRegex(search);
     where.$or = [
-      { subject: new RegExp(search, 'i') },
-      { ticketNo: new RegExp(search, 'i') },
-      { category: new RegExp(search, 'i') },
+      { subject: re },
+      { ticketNo: re },
+      { category: re },
     ];
   }
 
@@ -29,7 +33,7 @@ export const getTickets = async (req: Request, res: Response) => {
       .populate('companyId', 'id name')
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(parseInt(limit)),
+      .limit(limit),
     SupportTicket.countDocuments(where),
   ]);
 
@@ -42,7 +46,7 @@ export const getTickets = async (req: Request, res: Response) => {
 
   res.json({
     tickets,
-    pagination: { total, page: parseInt(page), limit: parseInt(limit), totalPages: Math.ceil(total / parseInt(limit)) },
+    pagination: { total, page: parseInt(page), limit, totalPages: Math.ceil(total / limit) },
     stats: { total: totalAll, open, inProgress, resolved },
   });
 };
@@ -62,12 +66,16 @@ export const createTicket = async (req: Request, res: Response) => {
     priority?: string; companyId?: string;
   };
 
-  const user = (req as unknown as { user: { id: string } }).user;
-  const ticketNo = `#TKT${Date.now().toString().slice(-6)}`;
+  const userId = getUserId(req);
+  const today = new Date();
+  const datePart = `${String(today.getDate()).padStart(2, '0')}${String(today.getMonth() + 1).padStart(2, '0')}${today.getFullYear()}`;
+  const prefix = `TKT-${datePart}-`;
+  const countToday = await SupportTicket.countDocuments({ ticketNo: { $regex: `^${prefix}` } });
+  const ticketNo = `${prefix}${String(countToday + 1).padStart(4, '0')}`;
 
   const ticket = await SupportTicket.create({
     ticketNo,
-    userId: user.id,
+    userId,
     companyId: companyId || null,
     category,
     subject,
@@ -79,6 +87,7 @@ export const createTicket = async (req: Request, res: Response) => {
     .populate('userId', 'id name email role')
     .populate('companyId', 'id name');
 
+  logActivity(req, `Created support ticket ${ticketNo}: ${subject}`, 'Support');
   res.status(201).json(populated);
 };
 
@@ -94,6 +103,10 @@ export const updateTicket = async (req: Request, res: Response) => {
     .populate('userId', 'id name email role')
     .populate('companyId', 'id name');
 
+  if (ticket) {
+    const changes = [status && `status → ${status}`, priority && `priority → ${priority}`].filter(Boolean).join(', ');
+    logActivity(req, `Updated ticket ${(ticket as any).ticketNo}: ${changes}`, 'Support');
+  }
   res.json(ticket);
 };
 

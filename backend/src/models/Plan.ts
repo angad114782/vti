@@ -2,7 +2,7 @@ import mongoose, { Schema } from 'mongoose';
 
 const planSchema = new Schema({
   name: { type: String, required: true },
-  type: { type: String, enum: ['BASIC', 'PRO', 'ENTERPRISE'], unique: true },
+  type: { type: String, required: true, unique: true },
   price: { type: Number, required: true },
   maxUsers: { type: Number, required: true },
   features: [String],

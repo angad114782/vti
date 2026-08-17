@@ -1,16 +1,10 @@
-import { useState, useEffect } from 'react';
-import { caApi, type CADept } from '../../api/companyAdmin';
 import { Loader2, Users, UserCheck, Building2 } from 'lucide-react';
+import { useCaDepartments } from '../../hooks/queries/useCaQueries';
 
 const DEPT_COLORS = ['#6366f1', '#0d7470', '#7c3aed', '#ea580c', '#2563eb', '#16a34a', '#ec4899', '#f59e0b'];
 
 export default function CADepartmentsPage() {
-  const [depts, setDepts] = useState<CADept[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    caApi.getDepartments().then(({ data }) => setDepts(data)).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  const { data: depts = [], isLoading: loading } = useCaDepartments();
 
   const totalEmp = depts.reduce((s, d) => s + d.total, 0);
 

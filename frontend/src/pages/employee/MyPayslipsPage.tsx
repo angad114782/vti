@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
-import { employeeApi, type MyPayslip } from '../../api/employee';
-import { Eye, Download, Loader2, TrendingUp } from 'lucide-react';
+import { useState } from 'react';
+import type { MyPayslip } from '../../api/employee';
+import { Download, Loader2, X } from 'lucide-react';
+import { useMyPayslips } from '../../hooks/queries/useEmployeeQueries';
 
 const STATUS_META: Record<string, { bg: string; color: string }> = {
   Paid:       { bg: '#dcfce7', color: '#15803d' },
@@ -11,12 +12,10 @@ const STATUS_META: Record<string, { bg: string; color: string }> = {
 const fmtPay = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
 export default function MyPayslipsPage() {
-  const [payslips, setPayslips] = useState<MyPayslip[]>([]);
-  const [loading,  setLoading]  = useState(true);
+  const [viewPayslip, setViewPayslip] = useState<MyPayslip | null>(null);
 
-  useEffect(() => {
-    employeeApi.getPayslips().then(({ data }) => setPayslips(data)).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  const { data, isLoading: loading } = useMyPayslips();
+  const payslips: MyPayslip[] = data ?? [];
 
   const latestPaid = payslips.find((p) => p.status === 'Paid');
   const totalYTD   = payslips.filter((p) => p.status === 'Paid').reduce((s, p) => s + p.netPay, 0);
@@ -38,10 +37,7 @@ export default function MyPayslipsPage() {
         <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
           <p style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Total Earned YTD</p>
           <p style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', marginTop: '6px' }}>{fmtPay(totalYTD)}</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
-            <TrendingUp size={12} color="#16a34a" />
-            <span style={{ fontSize: '11px', color: '#16a34a', fontWeight: 600 }}>+4.2% vs last year</span>
-          </div>
+          <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>{payslips.filter((p) => p.status === 'Paid').length} payslip(s) paid</p>
         </div>
         <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
           <p style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Total Payslips</p>
@@ -83,7 +79,7 @@ export default function MyPayslipsPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc' }}>
-                {['Payslip ID', 'Period', 'Net Pay', 'Status', 'Actions'].map((h) => (
+                {['Payslip ID', 'Period', 'Net Pay', 'Status', ''].map((h) => (
                   <th key={h} style={{ textAlign: 'left', padding: '10px 20px', fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #f1f5f9' }}>{h}</th>
                 ))}
               </tr>
@@ -92,16 +88,13 @@ export default function MyPayslipsPage() {
               {payslips.map((p, i) => {
                 const sm = STATUS_META[p.status] ?? STATUS_META['Pending']!;
                 return (
-                  <tr key={p.id} style={{ borderBottom: i < payslips.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                  <tr key={p.id} onClick={() => setViewPayslip(p)} style={{ borderBottom: i < payslips.length - 1 ? '1px solid #f8fafc' : 'none', cursor: 'pointer' }}>
                     <td style={{ padding: '14px 20px' }}><span style={{ fontSize: '13px', fontWeight: 700, color: '#0d7470', fontFamily: 'monospace' }}>{p.payslipId}</span></td>
                     <td style={{ padding: '14px 20px' }}><span style={{ fontSize: '13px', color: '#374151' }}>{p.period}</span></td>
                     <td style={{ padding: '14px 20px' }}><span style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a' }}>{fmtPay(p.netPay)}</span></td>
                     <td style={{ padding: '14px 20px' }}><span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: sm.bg, color: sm.color }}>{p.status}</span></td>
                     <td style={{ padding: '14px 20px' }}>
-                      <div style={{ display: 'flex', gap: '6px' }}>
-                        <button style={{ width: '30px', height: '30px', borderRadius: '7px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Eye size={13} /></button>
-                        <button disabled={p.status !== 'Paid'} style={{ width: '30px', height: '30px', borderRadius: '7px', border: 'none', backgroundColor: p.status === 'Paid' ? '#0d7470' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: p.status === 'Paid' ? 'pointer' : 'not-allowed', opacity: p.status !== 'Paid' ? 0.5 : 1 }}><Download size={13} color={p.status === 'Paid' ? 'white' : '#94a3b8'} /></button>
-                      </div>
+                      <button onClick={(e) => e.stopPropagation()} disabled={p.status !== 'Paid'} title={p.status !== 'Paid' ? 'Available once paid' : 'Download payslip'} style={{ width: '30px', height: '30px', borderRadius: '7px', border: 'none', backgroundColor: p.status === 'Paid' ? '#0d7470' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: p.status === 'Paid' ? 'pointer' : 'not-allowed', opacity: p.status !== 'Paid' ? 0.5 : 1 }}><Download size={13} color={p.status === 'Paid' ? 'white' : '#94a3b8'} /></button>
                     </td>
                   </tr>
                 );
@@ -113,6 +106,32 @@ export default function MyPayslipsPage() {
           </table>
         )}
       </div>
+
+      {viewPayslip && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ backgroundColor: 'white', borderRadius: '14px', width: '420px', maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+            <div style={{ padding: '20px 22px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: 700, fontSize: '15px', color: '#0f172a' }}>Payslip Detail</span>
+              <button onClick={() => setViewPayslip(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><X size={18} /></button>
+            </div>
+            <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {([
+                ['Payslip ID',   viewPayslip.payslipId],
+                ['Period',       viewPayslip.period],
+                ['Gross Salary', fmtPay(viewPayslip.grossSalary)],
+                ['Deductions',   fmtPay(viewPayslip.totalDeductions)],
+                ['Net Pay',      fmtPay(viewPayslip.netPay)],
+                ['Status',       viewPayslip.status],
+              ] as [string, string][]).map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 600 }}>{k}</span>
+                  <span style={{ fontSize: '13px', color: k === 'Net Pay' ? '#0d7470' : '#0f172a', fontWeight: k === 'Net Pay' ? 700 : 500 }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

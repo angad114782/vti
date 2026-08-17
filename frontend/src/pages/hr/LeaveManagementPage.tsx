@@ -1,6 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
-import { hrApi, type LeaveRequest } from '../../api/hr';
-import { Search, CheckCircle2, XCircle, Clock, CalendarDays, Loader2, Eye, X } from 'lucide-react';
+import { useState } from 'react';
+import { toast } from 'sonner';
+import { type LeaveRequest } from '../../api/hr';
+import { Search, CheckCircle2, XCircle, Clock, CalendarDays, Loader2, X } from 'lucide-react';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import PaginationBar from '../../components/data/Pagination';
+import { extractError } from '../../utils/errorUtils';
+import { useLeaves } from '../../hooks/queries/useHrQueries';
+import { useUpdateLeave } from '../../hooks/mutations/useHrMutations';
 
 const STATUS_META: Record<string, { bg: string; color: string }> = {
   Pending:  { bg: '#fef9c3', color: '#854d0e' },
@@ -68,32 +74,36 @@ function DetailModal({ leave, onClose, onAction }: { leave: LeaveRequest; onClos
 }
 
 export default function LeaveManagementPage() {
-  const [leaves, setLeaves] = useState<LeaveRequest[]>([]);
-  const [stats, setStats] = useState({ total: 0, pending: 0, approved: 0, rejected: 0 });
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [typeFilter, setTypeFilter] = useState('ALL');
+  const [page, setPage] = useState(1);
+  const limit = 20;
   const [viewLeave, setViewLeave] = useState<LeaveRequest | null>(null);
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    try {
-      const p: Record<string, string> = {};
-      if (search) p.search = search;
-      if (statusFilter !== 'ALL') p.status = statusFilter;
-      if (typeFilter !== 'ALL') p.leaveType = typeFilter;
-      const { data } = await hrApi.getLeaves(p);
-      setLeaves(data.leaves); setStats(data.stats);
-    } finally { setLoading(false); }
-  }, [search, statusFilter, typeFilter]);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
-  useEffect(() => { void fetch(); }, [fetch]);
+  const params: Record<string, string> = { page: String(page), limit: String(limit) };
+  if (debouncedSearch) params.search = debouncedSearch;
+  if (statusFilter !== 'ALL') params.status = statusFilter;
+  if (typeFilter !== 'ALL') params.leaveType = typeFilter;
 
-  const handleAction = async (id: string, status: string) => {
-    await hrApi.updateLeave(id, status);
-    setLeaves((prev) => prev.map((l) => l.id === id ? { ...l, status } : l));
-    setStats((s) => ({ ...s, pending: Math.max(0, s.pending - 1), approved: status === 'Approved' ? s.approved + 1 : s.approved, rejected: status === 'Rejected' ? s.rejected + 1 : s.rejected }));
+  const { data, isLoading: loading } = useLeaves(params);
+  const leaves: LeaveRequest[] = data?.leaves ?? [];
+  const stats = data?.stats ?? { total: 0, pending: 0, approved: 0, rejected: 0 };
+  const pagination = data?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
+
+  const updateLeave = useUpdateLeave();
+
+  const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
+  const handleStatusChange = (v: string) => { setStatusFilter(v); setPage(1); };
+  const handleTypeChange   = (v: string) => { setTypeFilter(v); setPage(1); };
+
+  const handleAction = (id: string, status: string) => {
+    updateLeave.mutate({ id, status }, {
+      onSuccess: () => toast.success(`Leave ${status.toLowerCase()} successfully`),
+      onError: (err) => toast.error(extractError(err, 'Failed to update leave')),
+    });
   };
 
   const statCards = [
@@ -125,13 +135,13 @@ export default function LeaveManagementPage() {
         <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: '180px' }}>
             <Search size={13} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee..." style={{ width: '100%', paddingLeft: '34px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
+            <input value={search} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search employee..." style={{ width: '100%', paddingLeft: '34px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
           </div>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={selectStyle}>
+          <select value={typeFilter} onChange={(e) => handleTypeChange(e.target.value)} style={selectStyle}>
             <option value="ALL">All Types</option>
             {LEAVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={selectStyle}>
+          <select value={statusFilter} onChange={(e) => handleStatusChange(e.target.value)} style={selectStyle}>
             <option value="ALL">All Status</option>
             <option value="Pending">Pending</option>
             <option value="Approved">Approved</option>
@@ -156,7 +166,7 @@ export default function LeaveManagementPage() {
                   const sm = STATUS_META[l.status] ?? STATUS_META['Pending']!;
                   const av = getAv(l.employee.user.name);
                   return (
-                    <tr key={l.id} style={{ borderBottom: i < leaves.length - 1 ? '1px solid #f8fafc' : 'none' }}>
+                    <tr key={l.id} onClick={() => setViewLeave(l)} style={{ borderBottom: i < leaves.length - 1 ? '1px solid #f8fafc' : 'none', cursor: 'pointer' }}>
                       <td style={{ padding: '12px 18px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: av.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: av.color, fontWeight: 700, fontSize: '10px', flexShrink: 0 }}>{initials(l.employee.user.name)}</div>
@@ -170,10 +180,9 @@ export default function LeaveManagementPage() {
                       <td style={{ padding: '12px 18px' }}><span style={{ fontSize: '13px', color: '#374151' }}>—</span></td>
                       <td style={{ padding: '12px 18px' }}>
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          <button onClick={() => setViewLeave(l)} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Eye size={13} /></button>
                           {l.status === 'Pending' && <>
-                            <button onClick={() => void handleAction(l.id, 'Approved')} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#15803d' }}><CheckCircle2 size={13} /></button>
-                            <button onClick={() => void handleAction(l.id, 'Rejected')} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#b91c1c' }}><XCircle size={13} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); void handleAction(l.id, 'Approved'); }} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#15803d' }}><CheckCircle2 size={13} /></button>
+                            <button onClick={(e) => { e.stopPropagation(); void handleAction(l.id, 'Rejected'); }} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#b91c1c' }}><XCircle size={13} /></button>
                           </>}
                         </div>
                       </td>
@@ -185,7 +194,8 @@ export default function LeaveManagementPage() {
           </div>
         )}
       </div>
-      {viewLeave && <DetailModal leave={viewLeave} onClose={() => setViewLeave(null)} onAction={(id, status) => void handleAction(id, status)} />}
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => setPage(p)} />
+      {viewLeave && <DetailModal leave={viewLeave} onClose={() => setViewLeave(null)} onAction={(id, status) => handleAction(id, status)} />}
     </div>
   );
 }

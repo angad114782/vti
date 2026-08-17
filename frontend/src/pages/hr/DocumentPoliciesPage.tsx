@@ -1,6 +1,12 @@
-import { useState, useEffect, useCallback } from 'react';
-import { hrApi, type Document } from '../../api/hr';
+import { useState, useRef } from 'react';
+import { toast } from 'sonner';
+import { type Document } from '../../api/hr';
 import { Search, Upload, Plus, Eye, Download, Edit2, Trash2, Loader2, X, ChevronDown } from 'lucide-react';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import PaginationBar from '../../components/data/Pagination';
+import { extractError } from '../../utils/errorUtils';
+import { useDocuments } from '../../hooks/queries/useHrQueries';
+import { useCreateDocument, useDeleteDocument } from '../../hooks/mutations/useHrMutations';
 
 const CATEGORIES = ['Safety', 'HR Policy', 'Compliance', 'IT Policy', 'Finance'];
 const CAT_COLOR: Record<string, { bg: string; color: string }> = {
@@ -13,22 +19,51 @@ const CAT_COLOR: Record<string, { bg: string; color: string }> = {
 
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
-function CreateDocModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateDocModal({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({ name: '', category: '', version: 'v1.0', visibility: 'All Employees' });
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
-  const handleSubmit = async () => {
+  const createDocument = useCreateDocument();
+
+  const handleSubmit = () => {
     if (!form.name || !form.category) { setError('Name and category are required'); return; }
-    setLoading(true); setError('');
-    try { await hrApi.createDocument(form as Record<string, string>); onCreated(); onClose(); }
-    catch { setError('Failed to create document.'); }
-    finally { setLoading(false); }
+    if (!file) { setError('Please select a file to upload'); return; }
+    setError('');
+    createDocument.mutate({ file, ...form }, {
+      onSuccess: () => { toast.success('Document created successfully'); onClose(); },
+      onError: (err) => setError(extractError(err, 'Failed to upload or create document')),
+    });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setFile(e.dataTransfer.files[0]);
+      if (!form.name) {
+        const baseName = e.dataTransfer.files[0].name.replace(/\.[^/.]+$/, '');
+        set('name', baseName);
+      }
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
+      if (!form.name) {
+        const baseName = e.target.files[0].name.replace(/\.[^/.]+$/, '');
+        set('name', baseName);
+      }
+    }
   };
 
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#0f172a' };
   const labelStyle: React.CSSProperties = { fontSize: '12px', fontWeight: 600, color: '#374151', marginBottom: '4px', display: 'block' };
+  const loading = createDocument.isPending;
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}>
@@ -39,6 +74,30 @@ function CreateDocModal({ onClose, onCreated }: { onClose: () => void; onCreated
         </div>
         <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {error && <div style={{ padding: '10px', borderRadius: '8px', backgroundColor: '#fef2f2', color: '#b91c1c', fontSize: '13px' }}>{error}</div>}
+
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={handleDragOver}
+            onDrop={handleDrop}
+            style={{ border: '2px dashed #cbd5e1', borderRadius: '12px', padding: '24px 20px', textAlign: 'center', backgroundColor: '#f8fafc', cursor: 'pointer', outline: 'none' }}
+          >
+            <input type="file" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} accept=".pdf,.jpg,.jpeg,.png,.docx,.xlsx,.csv" />
+            {file ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ padding: '8px', backgroundColor: '#e6f4f2', borderRadius: '8px', color: '#0d7470', marginBottom: '8px', fontWeight: 600, fontSize: '12px' }}>{file.name.split('.').pop()?.toUpperCase() || 'FILE'}</div>
+                <p style={{ fontSize: '13px', color: '#0f172a', fontWeight: 600, wordBreak: 'break-all', padding: '0 10px' }}>{file.name}</p>
+                <p style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{(file.size / (1024 * 1024)).toFixed(2)} MB</p>
+                <button onClick={(e) => { e.stopPropagation(); setFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} style={{ marginTop: '12px', fontSize: '11px', color: '#b91c1c', border: 'none', background: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline' }}>Remove file</button>
+              </div>
+            ) : (
+              <>
+                <Upload size={24} color="#0d7470" style={{ margin: '0 auto 10px' }} />
+                <p style={{ fontSize: '13px', color: '#334155', fontWeight: 600 }}>Click or Drag file to upload</p>
+                <p style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>PDF, PNG, JPG, DOCX, XLSX up to 10MB</p>
+              </>
+            )}
+          </div>
+
           <div><label style={labelStyle}>Document Name *</label><input value={form.name} onChange={(e) => set('name', e.target.value)} style={inputStyle} /></div>
           <div>
             <label style={labelStyle}>Category *</label>
@@ -64,16 +123,10 @@ function CreateDocModal({ onClose, onCreated }: { onClose: () => void; onCreated
               </div>
             </div>
           </div>
-          {/* Upload zone */}
-          <div style={{ border: '2px dashed #e2e8f0', borderRadius: '10px', padding: '20px', textAlign: 'center', backgroundColor: '#f8fafc' }}>
-            <Upload size={20} color="#94a3b8" style={{ margin: '0 auto 8px' }} />
-            <p style={{ fontSize: '13px', color: '#64748b', fontWeight: 500 }}>Upload screenshot or document</p>
-            <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>Max. JPG, PDF up to 10MB</p>
-          </div>
         </div>
         <div style={{ padding: '14px 22px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ padding: '8px 18px', border: '1.5px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Cancel</button>
-          <button onClick={() => void handleSubmit()} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 20px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', opacity: loading ? 0.7 : 1 }}>
+          <button onClick={handleSubmit} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 20px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', opacity: loading ? 0.7 : 1 }}>
             {loading && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />} Create Policy
           </button>
         </div>
@@ -83,28 +136,32 @@ function CreateDocModal({ onClose, onCreated }: { onClose: () => void; onCreated
 }
 
 export default function DocumentPoliciesPage() {
-  const [docs, setDocs] = useState<Document[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search,         setSearch]         = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
-  const [showCreate, setShowCreate] = useState(false);
+  const [showCreate,     setShowCreate]     = useState(false);
+  const [page,           setPage]           = useState(1);
+  const limit = 20;
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    try {
-      const p: Record<string, string> = {};
-      if (search) p.search = search;
-      if (categoryFilter !== 'ALL') p.category = categoryFilter;
-      const { data } = await hrApi.getDocuments(p);
-      setDocs(data);
-    } finally { setLoading(false); }
-  }, [search, categoryFilter]);
+  const debouncedSearch = useDebouncedValue(search, 300);
 
-  useEffect(() => { void fetch(); }, [fetch]);
+  const params: Record<string, string> = { page: String(page), limit: String(limit) };
+  if (debouncedSearch) params.search = debouncedSearch;
+  if (categoryFilter !== 'ALL') params.category = categoryFilter;
 
-  const handleDelete = async (id: string) => {
-    await hrApi.deleteDocument(id);
-    setDocs((prev) => prev.filter((d) => d.id !== id));
+  const { data, isLoading: loading } = useDocuments(params);
+  const docs: Document[] = data?.documents ?? [];
+  const pagination = data?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
+
+  const deleteDocument = useDeleteDocument();
+
+  const handleSearchChange   = (v: string) => { setSearch(v); setPage(1); };
+  const handleCategoryChange = (v: string) => { setCategoryFilter(v); setPage(1); };
+
+  const handleDelete = (id: string) => {
+    deleteDocument.mutate(id, {
+      onSuccess: () => toast.success('Document deleted'),
+      onError: (err) => toast.error(extractError(err, 'Failed to delete document')),
+    });
   };
 
   const selectStyle: React.CSSProperties = { padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#374151', backgroundColor: 'white', cursor: 'pointer', outline: 'none', fontFamily: 'Inter, sans-serif' };
@@ -117,7 +174,7 @@ export default function DocumentPoliciesPage() {
           <p style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>Manage company documents, policies, and compliance files</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 16px', border: '1.5px solid #e2e8f0', borderRadius: '9px', backgroundColor: 'white', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
+          <button onClick={() => setShowCreate(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 16px', border: '1.5px solid #e2e8f0', borderRadius: '9px', backgroundColor: 'white', color: '#374151', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
             <Upload size={14} /> Upload Document
           </button>
           <button onClick={() => setShowCreate(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 16px', backgroundColor: '#0d7470', border: 'none', borderRadius: '9px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
@@ -127,18 +184,17 @@ export default function DocumentPoliciesPage() {
       </div>
 
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-        {/* Filters */}
         <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: '180px' }}>
             <Search size={13} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search documents..." style={{ width: '100%', paddingLeft: '34px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
+            <input value={search} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search documents..." style={{ width: '100%', paddingLeft: '34px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
           </div>
-          <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} style={selectStyle}>
+          <select value={categoryFilter} onChange={(e) => handleCategoryChange(e.target.value)} style={selectStyle}>
             <option value="ALL">All Categories</option>
             {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
           </select>
           <select style={selectStyle}><option>All Visibility</option><option>All Employees</option><option>Management</option></select>
-          <button onClick={() => { setSearch(''); setCategoryFilter('ALL'); }} style={{ padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', cursor: 'pointer', fontSize: '12px', color: '#374151', fontFamily: 'Inter, sans-serif' }}>Clear Filters</button>
+          <button onClick={() => { setSearch(''); handleCategoryChange('ALL'); }} style={{ padding: '7px 14px', border: '1px solid #e2e8f0', borderRadius: '8px', backgroundColor: 'white', cursor: 'pointer', fontSize: '12px', color: '#374151', fontFamily: 'Inter, sans-serif' }}>Clear Filters</button>
         </div>
 
         {loading ? (
@@ -156,11 +212,12 @@ export default function DocumentPoliciesPage() {
               <tbody>
                 {docs.map((d, i) => {
                   const cc = CAT_COLOR[d.category] ?? { bg: '#f1f5f9', color: '#475569' };
+                  const fileExt = d.fileUrl ? d.fileUrl.split('.').pop()?.toUpperCase() : 'PDF';
                   return (
                     <tr key={d.id} style={{ borderBottom: i < docs.length - 1 ? '1px solid #f8fafc' : 'none' }}>
                       <td style={{ padding: '13px 18px' }}>
                         <p style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>{d.name}</p>
-                        <p style={{ fontSize: '11px', color: '#94a3b8' }}>PDF • {d.fileSize ?? '—'} • {d.version ?? '—'}</p>
+                        <p style={{ fontSize: '11px', color: '#94a3b8' }}>{fileExt} • {d.fileSize ?? '—'} • {d.version ?? '—'}</p>
                       </td>
                       <td style={{ padding: '13px 18px' }}><span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: cc.bg, color: cc.color }}>{d.category}</span></td>
                       <td style={{ padding: '13px 18px' }}><span style={{ fontSize: '13px', color: '#374151' }}>{d.uploadedBy}</span></td>
@@ -168,26 +225,24 @@ export default function DocumentPoliciesPage() {
                       <td style={{ padding: '13px 18px' }}><span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: '#dbeafe', color: '#1d4ed8' }}>{d.visibility}</span></td>
                       <td style={{ padding: '13px 18px' }}>
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          {[Eye, Download, Edit2].map((Icon, idx) => (
-                            <button key={idx} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Icon size={13} /></button>
-                          ))}
-                          <button onClick={() => void handleDelete(d.id)} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #fecaca', backgroundColor: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#b91c1c' }}><Trash2 size={13} /></button>
+                          <a href={d.fileUrl || '#'} target="_blank" rel="noopener noreferrer" style={{ pointerEvents: d.fileUrl ? 'auto' : 'none', opacity: d.fileUrl ? 1 : 0.4, width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }} title="View document"><Eye size={13} /></a>
+                          <a href={d.fileUrl ? `${d.fileUrl}?download=true` : '#'} download={d.name} style={{ pointerEvents: d.fileUrl ? 'auto' : 'none', opacity: d.fileUrl ? 1 : 0.4, width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }} title="Download document"><Download size={13} /></a>
+                          <button style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'not-allowed', opacity: 0.4, color: '#64748b' }}><Edit2 size={13} /></button>
+                          <button onClick={() => handleDelete(d.id)} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #fecaca', backgroundColor: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#b91c1c' }}><Trash2 size={13} /></button>
                         </div>
                       </td>
                     </tr>
                   );
                 })}
+                {docs.length === 0 && <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', fontSize: '13px', color: '#94a3b8' }}>No documents found</td></tr>}
               </tbody>
             </table>
           </div>
         )}
-
-        <div style={{ padding: '12px 20px', borderTop: '1px solid #f1f5f9' }}>
-          <p style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px' }}>QUICK ACTIONS</p>
-        </div>
       </div>
 
-      {showCreate && <CreateDocModal onClose={() => setShowCreate(false)} onCreated={() => void fetch()} />}
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => setPage(p)} />
+      {showCreate && <CreateDocModal onClose={() => setShowCreate(false)} />}
     </div>
   );
 }

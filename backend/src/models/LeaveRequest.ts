@@ -9,7 +9,15 @@ const leaveRequestSchema = new Schema({
   days: { type: Number, required: true },
   reason: String,
   status: { type: String, default: 'Pending' },
+  workflowType: { type: String, default: 'leave' },
+  workflowStep: { type: Number, default: 1 },
+  pendingRole: { type: String, default: 'SUPERVISOR' },
 }, { timestamps: true });
+
+leaveRequestSchema.index({ companyId: 1, createdAt: -1 });
+leaveRequestSchema.index({ companyId: 1, status: 1 });
+leaveRequestSchema.index({ employeeId: 1, createdAt: -1 });
+leaveRequestSchema.index({ employeeId: 1, status: 1, startDate: 1 });
 
 leaveRequestSchema.set('toJSON', {
   virtuals: true,

@@ -1,19 +1,12 @@
-import { useState } from 'react';
-import { Download, Clock } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Download, Clock, Loader2 } from 'lucide-react';
+import { caApi } from '../../../api/companyAdmin';
 
 const REPORT_TYPES = [
   { id: 'monthly', label: 'Monthly Payroll Summary',  desc: 'Consolidated view of all salary disbursements' },
   { id: 'dept',    label: 'Department Cost Analysis',  desc: 'Breakdown of salary expenses by department'   },
   { id: 'overtime',label: 'Overtime Report',           desc: 'Detailed log of overtime hours and payouts'   },
   { id: 'revision',label: 'Salary Revision History',   desc: 'Log of all salary structure changes'          },
-];
-
-const RECENT_DOWNLOADS = [
-  { name: 'Payroll_Summary_Jan26.pdf', date: 'Feb 01, 2026', size: '2.4 MB' },
-  { name: 'Payroll_Summary_Jan26.pdf', date: 'Feb 01, 2026', size: '2.4 MB' },
-  { name: 'Payroll_Summary_Jan26.pdf', date: 'Feb 01, 2026', size: '2.4 MB' },
-  { name: 'Payroll_Summary_Jan26.pdf', date: 'Feb 01, 2026', size: '2.4 MB' },
-  { name: 'Payroll_Summary_Jan26.pdf', date: 'Feb 01, 2026', size: '2.4 MB' },
 ];
 
 const DEPTS = ['All Departments','Engineering','Operations','HR','Finance','Sales','Support'];
@@ -28,6 +21,49 @@ export default function CAPayrollReportsPage() {
   const [dept,       setDept]       = useState('All Departments');
   const [fmtExcel,   setFmtExcel]   = useState(false);
   const [fmtPdf,     setFmtPdf]     = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [recentDownloads, setRecentDownloads] = useState<{ name: string; date: string; size: string }[]>([]);
+  const [preview, setPreview] = useState<string[][]>([]);
+
+  const params = useMemo(() => {
+    const fromMonthIndex = MONTHS.indexOf(fromMonth) + 1;
+    const toMonthIndex = MONTHS.indexOf(toMonth) + 1;
+    const from = `${fromYear}-${String(fromMonthIndex).padStart(2, '0')}-01`;
+    const to = `${toYear}-${String(toMonthIndex).padStart(2, '0')}-31`;
+    return { from, to };
+  }, [fromMonth, fromYear, toMonth, toYear]);
+
+  const downloadRows = (name: string, rows: string[][]) => {
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    try {
+      const { data } = await caApi.getPayrollReport(params);
+      const rows: string[][] = [
+        ['Metric', 'Value'],
+        ['Total Payslips', String(data.summary.count)],
+        ['Total Gross', String(data.summary.totalGross)],
+        ['Total Deductions', String(data.summary.totalDeductions)],
+        ['Total Net', String(data.summary.totalNet)],
+        ...data.byMonth.map((m) => [`Month ${m.label}`, `Net ${m.net} / Count ${m.count}`]),
+      ];
+      setPreview(rows);
+      const fileName = `payroll-report-${selectedType}-${Date.now()}.csv`;
+      downloadRows(fileName, rows);
+      setRecentDownloads((prev) => [{ name: fileName, date: new Date().toLocaleString('en-IN'), size: `${Math.max(1, Math.round(JSON.stringify(rows).length / 1024))} KB` }, ...prev].slice(0, 5));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const selectStyle: React.CSSProperties = {
     width: '100%', padding: '9px 10px', border: '1px solid #e2e8f0', borderRadius: '8px',
@@ -120,11 +156,24 @@ export default function CAPayrollReportsPage() {
               style={{ padding: '10px 20px', border: '1.5px solid #e2e8f0', borderRadius: '9px', backgroundColor: 'white', color: '#374151', fontSize: '12px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}
             >Clear</button>
             <button
+              onClick={() => void handleGenerate()}
+              disabled={loading}
               style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px', backgroundColor: '#0d7470', color: 'white', border: 'none', borderRadius: '9px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}
             >
-              <Download size={14} /> Download Report
+              {loading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />} Download Report
             </button>
           </div>
+          {preview.length > 0 && (
+            <div style={{ marginTop: '16px', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+              <div style={{ padding: '10px 12px', backgroundColor: '#f8fafc', fontSize: '11px', fontWeight: 700, color: '#64748b' }}>Preview</div>
+              {preview.slice(0, 6).map((row, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 12px', borderTop: i === 0 ? 'none' : '1px solid #f1f5f9', fontSize: '12px' }}>
+                  <span style={{ color: '#374151' }}>{row[0]}</span>
+                  <span style={{ color: '#0f172a', fontWeight: 600 }}>{row[1]}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Right: Recent downloads */}
@@ -134,7 +183,8 @@ export default function CAPayrollReportsPage() {
             <button style={{ fontSize: '11px', color: '#0d7470', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>View All</button>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            {RECENT_DOWNLOADS.map((r, i) => (
+            {recentDownloads.length === 0 && <p style={{ fontSize: '12px', color: '#94a3b8' }}>No reports downloaded in this session.</p>}
+            {recentDownloads.map((r, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: i < RECENT_DOWNLOADS.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Clock size={12} color="#94a3b8" />

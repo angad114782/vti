@@ -2,7 +2,7 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, CalendarCheck, Users, CreditCard,
   CheckSquare, BarChart2, Settings, LogOut, ChevronDown,
-  Building2, Shield, GitBranch,
+  Building2, Shield, GitBranch, UserCog, Blocks, ClipboardList,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
@@ -11,6 +11,8 @@ const NAV_TOP = [
   { to: '/company-admin/dashboard',  label: 'Dashboard',  Icon: LayoutDashboard },
   { to: '/company-admin/attendance', label: 'Attendance', Icon: CalendarCheck },
   { to: '/company-admin/workforce',  label: 'Workforce',  Icon: Users },
+  { to: '/company-admin/users',      label: 'Users',      Icon: UserCog },
+  { to: '/company-admin/departments', label: 'Departments', Icon: Building2 },
 ];
 
 const PAYROLL_ITEMS = [
@@ -25,6 +27,8 @@ const PAYROLL_ITEMS = [
 const NAV_BOT = [
   { to: '/company-admin/approvals', label: 'Approvals', Icon: CheckSquare },
   { to: '/company-admin/reports',   label: 'Reports',   Icon: BarChart2   },
+  { to: '/company-admin/activity',  label: 'Activity',  Icon: ClipboardList },
+  { to: '/company-admin/modules',   label: 'Modules',   Icon: Blocks },
 ];
 
 const SETTINGS_ITEMS = [
@@ -37,6 +41,8 @@ export default function CompanyAdminSidebar() {
   const navigate   = useNavigate();
   const location   = useLocation();
   const { logout } = useAuthStore();
+  const { search } = location;
+  const toWithContext = (path: string) => (search && search.includes('companyId=') ? { pathname: path, search } : path);
 
   const isPayroll  = location.pathname.startsWith('/company-admin/payroll');
   const isSettings = location.pathname.startsWith('/company-admin/settings');
@@ -84,7 +90,7 @@ export default function CompanyAdminSidebar() {
       <nav style={{ flex: 1, padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: '2px', overflowY: 'auto' }}>
         {/* Dashboard, Attendance, Workforce */}
         {NAV_TOP.map(({ to, label, Icon }) => (
-          <NavLink key={to} to={to} style={({ isActive }) => linkStyle(isActive)}>
+          <NavLink key={to} to={toWithContext(to)} style={({ isActive }) => linkStyle(isActive)}>
             {({ isActive }) => (
               <>
                 {isActive && <div style={{ position: 'absolute', left: 0, width: '3px', height: '28px', backgroundColor: '#4ade80', borderRadius: '0 3px 3px 0' }} />}
@@ -100,7 +106,7 @@ export default function CompanyAdminSidebar() {
         {payrollOpen && (
           <div style={{ paddingLeft: '12px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
             {PAYROLL_ITEMS.map(({ to, label }) => (
-              <NavLink key={to} to={to} style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '12px', padding: '7px 10px' })}>
+              <NavLink key={to} to={toWithContext(to)} style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '12px', padding: '7px 10px' })}>
                 {({ isActive }) => (
                   <>
                     {isActive && <div style={{ position: 'absolute', left: 0, width: '3px', height: '22px', backgroundColor: '#4ade80', borderRadius: '0 3px 3px 0' }} />}
@@ -114,7 +120,7 @@ export default function CompanyAdminSidebar() {
 
         {/* Approvals, Reports */}
         {NAV_BOT.map(({ to, label, Icon }) => (
-          <NavLink key={to} to={to} style={({ isActive }) => linkStyle(isActive)}>
+          <NavLink key={to} to={toWithContext(to)} style={({ isActive }) => linkStyle(isActive)}>
             {({ isActive }) => (
               <>
                 {isActive && <div style={{ position: 'absolute', left: 0, width: '3px', height: '28px', backgroundColor: '#4ade80', borderRadius: '0 3px 3px 0' }} />}
@@ -130,7 +136,7 @@ export default function CompanyAdminSidebar() {
         {settingsOpen && (
           <div style={{ paddingLeft: '12px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
             {SETTINGS_ITEMS.map(({ to, label, Icon }) => (
-              <NavLink key={to} to={to} style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '12px', padding: '7px 10px' })}>
+              <NavLink key={to} to={toWithContext(to)} style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '12px', padding: '7px 10px' })}>
                 {({ isActive }) => (
                   <>
                     {isActive && <div style={{ position: 'absolute', left: 0, width: '3px', height: '22px', backgroundColor: '#4ade80', borderRadius: '0 3px 3px 0' }} />}
