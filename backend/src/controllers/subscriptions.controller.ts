@@ -119,7 +119,7 @@ export const updatePlan = async (req: Request, res: Response): Promise<void> => 
     if (isActive !== undefined) update.isActive = isActive;
     const plan = await Plan.findByIdAndUpdate(id, update, { new: true });
     if (!plan) { res.status(404).json({ message: 'Plan not found' }); return; }
-    logActivity(req, `Updated plan "${(plan as any).name}"`, 'Subscriptions');
+    await logActivity(req, `Updated plan "${(plan as any).name}"`, 'Subscriptions');
     res.json(plan);
   } catch (err) {
     console.error(err);
@@ -171,7 +171,7 @@ export const assignPlan = async (req: Request, res: Response): Promise<void> => 
       );
     }
 
-    logActivity(req, `Assigned ${plan} plan to "${(co as any)?.name ?? companyId}"`, 'Subscriptions');
+    await logActivity(req, `Assigned ${plan} plan to "${(co as any)?.name ?? companyId}"`, 'Subscriptions');
     res.json({ message: 'Plan assigned successfully' });
   } catch (err) {
     console.error(err);
@@ -249,7 +249,7 @@ export const deletePlan = async (req: Request, res: Response): Promise<void> => 
     }
 
     await Plan.findByIdAndUpdate(id, { isActive: false });
-    logActivity(req, `Deactivated plan "${(plan as any).name}"`, 'Subscriptions');
+    await logActivity(req, `Deactivated plan "${(plan as any).name}"`, 'Subscriptions');
     res.json({ message: 'Plan deactivated successfully' });
   } catch (err) {
     console.error(err);
@@ -269,7 +269,7 @@ export const updateSubscription = async (req: Request, res: Response): Promise<v
 
     const sub = await Subscription.findByIdAndUpdate(id, update, { new: true }).populate('companyId', '_id name industry plan');
     const coName = (sub as any)?.companyId?.name ?? id;
-    logActivity(req, `Updated subscription for "${coName}"`, 'Subscriptions');
+    await logActivity(req, `Updated subscription for "${coName}"`, 'Subscriptions');
     res.json(sub);
   } catch {
     res.status(500).json({ message: 'Internal server error' });

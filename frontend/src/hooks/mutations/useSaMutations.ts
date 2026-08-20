@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { companiesApi, type CreateCompanyData } from '../../api/companies';
 import { subscriptionsApi } from '../../api/subscriptions';
 import { supportApi } from '../../api/support';
+import { qk } from '../../lib/queryKeys';
 
 export const useCreateCompany = () => {
   const qc = useQueryClient();
@@ -43,6 +44,7 @@ export const useUpdatePlan = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sa', 'plans'] });
       qc.invalidateQueries({ queryKey: ['sa', 'subscriptions'] });
+      qc.invalidateQueries({ queryKey: qk.sa.activity() });
     },
   });
 };
@@ -55,6 +57,7 @@ export const useAssignPlan = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sa', 'subscriptions'] });
       qc.invalidateQueries({ queryKey: ['sa', 'companies'] });
+      qc.invalidateQueries({ queryKey: qk.sa.activity() });
     },
   });
 };

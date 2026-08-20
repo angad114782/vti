@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { subscriptionsApi, type Subscription, type PlanData } from '../../api/subscriptions';
 import { type Company } from '../../api/companies';
 import { useSaSubscriptions, useSaPlans, useSaCompanies } from '../../hooks/queries/useSaQueries';
+import { qk } from '../../lib/queryKeys';
 import { extractError } from '../../utils/errorUtils';
 import { getPlanBadge } from '../../utils/planColors';
 import {
@@ -531,6 +532,7 @@ export default function SubscriptionsPage() {
     void qc.invalidateQueries({ queryKey: ['sa', 'subscriptions'] });
     void qc.invalidateQueries({ queryKey: ['sa', 'plans'] });
     void qc.invalidateQueries({ queryKey: ['sa', 'companies'] });
+    void qc.invalidateQueries({ queryKey: qk.sa.activity() });
   };
 
   const statsRow = [

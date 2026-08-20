@@ -6,21 +6,23 @@ interface ActivityUser {
   companyId?: string;
 }
 
-export const logActivity = (
+export const logActivity = async (
   req: Request & { user?: ActivityUser },
   action: string,
   module: string,
   status = 'Success',
-): void => {
-  ActivityLog.create({
-    userId:    req.user?.userId,
-    companyId: req.user?.companyId,
-    action,
-    module,
-    status,
-    ipAddress: req.ip,
-    userAgent: req.headers['user-agent'],
-  }).catch((err: unknown) => {
+): Promise<void> => {
+  try {
+    await ActivityLog.create({
+      userId:    req.user?.userId,
+      companyId: req.user?.companyId,
+      action,
+      module,
+      status,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+  } catch (err: unknown) {
     console.error('[ActivityLog] Failed to write log:', err instanceof Error ? err.message : err);
-  });
+  }
 };

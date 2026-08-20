@@ -44,7 +44,7 @@ export const qk = {
     companies:     (p?: object) => ['sa', 'companies', p],
     plans:         ()           => ['sa', 'plans'],
     subscriptions: (p?: object) => ['sa', 'subscriptions', p],
-    activity:      (p?: object) => ['sa', 'activity', p],
+    activity:      (p?: object) => p === undefined ? ['sa', 'activity'] : ['sa', 'activity', p],
     support:       (p?: object) => ['sa', 'support', p],
     modules:       ()           => ['sa', 'modules'],
   },
