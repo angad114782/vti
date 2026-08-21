@@ -8,6 +8,7 @@ import { Loader2, Building2 } from 'lucide-react';
 import { extractError } from '../../utils/errorUtils';
 import { useCaCompany } from '../../hooks/queries/useCaQueries';
 import { useUpdateCompany } from '../../hooks/mutations/useCaMutations';
+import { paymentsApi, type Payment } from '../../api/payments';
 
 type Tab = 'Company Profile' | 'Subscription' | 'Security';
 const TABS: Tab[] = ['Company Profile', 'Subscription', 'Security'];
@@ -26,6 +27,7 @@ export default function CASettingsPage() {
   const [pwMsg,    setPwMsg]    = useState('');
   const [pwError,  setPwError]  = useState('');
   const [pwSaving, setPwSaving] = useState(false);
+  const [payments, setPayments] = useState<Payment[]>([]);
 
   const { data: company, isLoading: companyLoading } = useCaCompany();
   const updateCompany = useUpdateCompany();
@@ -49,6 +51,7 @@ export default function CASettingsPage() {
   // Load plans (no hook — keeping direct call)
   useEffect(() => {
     subscriptionsApi.getPlans().then(({ data }) => setPlans(data)).catch(() => {});
+    paymentsApi.mine().then(({ data }) => setPayments(data)).catch(() => {});
   }, []);
 
   const handleSave = () => {
@@ -142,6 +145,10 @@ export default function CASettingsPage() {
                   ))}
                   <div style={{ padding: '12px', backgroundColor: '#fffbeb', borderRadius: '8px', border: '1px solid #fde68a', fontSize: '12px', color: '#92400e' }}>
                     To upgrade or change your plan, contact your Super Admin or reach out to support.
+                  </div>
+                  <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '14px' }}>
+                    <p style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>Payment history</p>
+                    {payments.length === 0 ? <p style={{ fontSize: '12px', color: '#64748b' }}>Not recorded — this may be a legacy subscription. Contact your Super Admin for payment details.</p> : payments.map((payment) => <div key={payment.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '12px', borderBottom: '1px solid #f1f5f9' }}><span>{payment.source} · {payment.plan}</span><span style={{ fontWeight: 700, color: payment.status === 'PAID' ? '#15803d' : '#a16207' }}>{payment.status} · ₹{payment.amount.toLocaleString('en-IN')}</span></div>)}
                   </div>
                 </div>
               )}

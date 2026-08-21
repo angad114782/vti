@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { type LeaveRequest } from '../../api/hr';
 import { Search, CheckCircle2, XCircle, Clock, CalendarDays, Loader2, X } from 'lucide-react';
@@ -21,8 +22,8 @@ const avatarColors = [
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
   { bg: '#f0f9ff', color: '#0ea5e9' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'H').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'User').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
 function DetailModal({ leave, onClose, onAction }: { leave: LeaveRequest; onClose: () => void; onAction: (id: string, status: string) => void }) {
@@ -74,14 +75,15 @@ function DetailModal({ leave, onClose, onAction }: { leave: LeaveRequest; onClos
 }
 
 export default function LeaveManagementPage() {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [typeFilter, setTypeFilter] = useState('ALL');
-  const [page, setPage] = useState(1);
+  const [urlParams, setUrlParams] = useSearchParams();
+  const search = urlParams.get('search') ?? '';
+  const statusFilter = urlParams.get('status') ?? 'ALL';
+  const typeFilter = urlParams.get('leaveType') ?? 'ALL';
+  const page = Math.max(1, Number(urlParams.get('page') ?? '1') || 1);
   const limit = 20;
   const [viewLeave, setViewLeave] = useState<LeaveRequest | null>(null);
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const params: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) params.search = debouncedSearch;
@@ -95,9 +97,14 @@ export default function LeaveManagementPage() {
 
   const updateLeave = useUpdateLeave();
 
-  const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
-  const handleStatusChange = (v: string) => { setStatusFilter(v); setPage(1); };
-  const handleTypeChange   = (v: string) => { setTypeFilter(v); setPage(1); };
+  const updateUrl = (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(urlParams);
+    Object.entries(changes).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
+    setUrlParams(next, { replace: true });
+  };
+  const handleSearchChange = (v: string) => updateUrl({ search: v || null, page: '1' });
+  const handleStatusChange = (v: string) => updateUrl({ status: v === 'ALL' ? null : v, page: '1' });
+  const handleTypeChange   = (v: string) => updateUrl({ leaveType: v === 'ALL' ? null : v, page: '1' });
 
   const handleAction = (id: string, status: string) => {
     updateLeave.mutate({ id, status }, {
@@ -194,7 +201,7 @@ export default function LeaveManagementPage() {
           </div>
         )}
       </div>
-      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => setPage(p)} />
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => updateUrl({ page: String(p) })} />
       {viewLeave && <DetailModal leave={viewLeave} onClose={() => setViewLeave(null)} onAction={(id, status) => handleAction(id, status)} />}
     </div>
   );

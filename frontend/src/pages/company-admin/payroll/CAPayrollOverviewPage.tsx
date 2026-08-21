@@ -11,14 +11,6 @@ const DEPTS_FILTER = ['All Departments','Engineering','Operations','HR','Finance
 const fmtMoney = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
 
 /* ── Quick Actions ───────────────────────────── */
-const QUICK_ACTIONS = [
-  { label: 'Run Payroll',      Icon: Play,      path: '/company-admin/payroll/run'      },
-  { label: 'Download Payroll', Icon: Download,  path: '/company-admin/payroll/reports'  },
-  { label: 'Manage Roles',     Icon: Shield,    path: '/company-admin/settings/roles'   },
-  { label: 'Download Summary', Icon: FileText,  path: '/company-admin/payroll/reports'  },
-  { label: 'View Reports',     Icon: BarChart2, path: '/company-admin/payroll/reports'  },
-];
-
 export default function CAPayrollOverviewPage() {
   const navigate = useNavigate();
   const [period,  setPeriod]  = useState('February');
@@ -31,7 +23,7 @@ export default function CAPayrollOverviewPage() {
   const { data: payslipsData, isLoading: payslipsLoading } = useHrPayslips({ limit: '200' });
   const { data: payrollReport, isLoading: reportLoading  } = useCaPayrollReport(undefined, true);
 
-  const salaryRows = (salaryData?.results  ?? []) as SalaryRow[];
+  const salaryRows = useMemo(() => (salaryData?.results ?? []) as SalaryRow[], [salaryData?.results]);
   const payslips   = (payslipsData?.payslips ?? []) as Payslip[];
   const loading    = salaryLoading || payslipsLoading || reportLoading;
 
@@ -58,7 +50,7 @@ export default function CAPayrollOverviewPage() {
   };
 
   const totalEmployees = salaryRows.length || 1;
-  const processed = payslips.filter((p) => p.status === 'Paid').length;
+  const processed = payslips.filter((p) => ['Finalized', 'Paid'].includes(p.status)).length;
   const pending = payslips.filter((p) => p.status !== 'Paid').length;
   const procPct = Math.round((processed / totalEmployees) * 100);
 

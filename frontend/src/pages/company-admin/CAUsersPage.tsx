@@ -20,7 +20,7 @@ const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
 };
 
 const avatarColors = ['#6366f1', '#0d7470', '#7c3aed', '#ea580c', '#2563eb', '#16a34a'];
-const getColor = (n: string) => avatarColors[n.charCodeAt(0) % avatarColors.length]!;
+const getColor = (n?: string) => avatarColors[(n ?? 'U').charCodeAt(0) % avatarColors.length]!;
 const ini = (n: string) => n.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -40,7 +40,7 @@ export default function CAUsersPage() {
   const [credentials,   setCredentials]   = useState<{ name: string; email: string; password: string } | null>(null);
   const [copied,        setCopied]        = useState(false);
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const params: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) params.search = debouncedSearch;

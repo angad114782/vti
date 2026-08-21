@@ -54,13 +54,17 @@ export const createCompanySchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
   phone: z.string().optional(),
   address: z.string().optional(),
+  timezone: z.string().min(1).optional(),
   plan: planEnum.optional(),
   status: companyStatusEnum.optional(),
-  maxUsers: z.coerce.number().int().min(1).max(10000).optional(),
   planExpiry: z.string().datetime({ offset: true }).optional().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)).optional(),
   adminName: z.string().min(1, 'Admin name is required'),
   adminEmail: z.string().email('Admin email must be valid'),
   adminPassword: z.string().min(8).optional(),
+  paymentStatus: z.enum(['PENDING', 'PAID']).optional(),
+  paymentReference: z.string().max(200).optional(),
+  paymentNotes: z.string().max(2000).optional(),
+  paymentDate: z.string().optional(),
 });
 
 export const updateCompanySchema = createCompanySchema.partial();
@@ -79,6 +83,7 @@ export const createEmployeeSchema = z.object({
   bankName: z.string().optional(),
   branchName: z.string().optional(),
   accountHolder: z.string().optional(),
+  managerId: objectIdSchema.optional(),
 });
 
 export const updateEmployeeSchema = z.object({
@@ -87,10 +92,12 @@ export const updateEmployeeSchema = z.object({
   shiftType: z.string().optional(),
   shiftTiming: z.string().optional(),
   annualCtc: z.coerce.number().min(0).optional(),
-  status: z.enum(['Active', 'Inactive']).optional(),
+  status: z.enum(['Invited', 'Onboarding', 'Active', 'Inactive', 'NoticePeriod', 'Terminated', 'Archived']).optional(),
   bankName: z.string().optional(),
   branchName: z.string().optional(),
   accountHolder: z.string().optional(),
+  managerId: objectIdSchema.optional(),
+  version: z.coerce.number().int().nonnegative().optional(),
 });
 
 // ── Leaves / Approvals ───────────────────────────────────────────────────────
@@ -102,14 +109,17 @@ export const applyLeaveSchema = z.object({
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'startDate must be YYYY-MM-DD'),
   endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'endDate must be YYYY-MM-DD'),
   reason: z.string().optional(),
+  isHalfDay: z.boolean().optional(),
 });
 
 export const updateLeaveStatusSchema = z.object({
   status: leaveStatusEnum,
+  version: z.coerce.number().int().nonnegative().optional(),
 });
 
 export const updateApprovalSchema = z.object({
   status: approvalStatusEnum,
+  version: z.coerce.number().int().nonnegative().optional(),
 });
 
 // ── Expenses ─────────────────────────────────────────────────────────────────
@@ -122,6 +132,7 @@ export const submitExpenseSchema = z.object({
 
 export const updateExpenseSchema = z.object({
   status: z.enum(['Pending', 'Approved', 'Rejected']),
+  version: z.coerce.number().int().nonnegative().optional(),
 });
 
 // ── Documents ────────────────────────────────────────────────────────────────
@@ -142,6 +153,19 @@ export const createAttendanceSchema = z.object({
   checkOut:   z.string().regex(/^\d{2}:\d{2}$/, 'checkOut must be HH:MM').optional(),
   status:     z.enum(['Present', 'Late', 'Absent', 'Leave', 'Holiday']),
   notes:      z.string().optional(),
+});
+
+export const createAttendanceCorrectionSchema = z.object({
+  attendanceId: objectIdSchema,
+  checkIn: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  checkOut: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  status: z.enum(['Present', 'Late', 'Absent', 'Leave', 'Holiday']).optional(),
+  reason: z.string().trim().min(3).max(1000),
+});
+
+export const reviewAttendanceCorrectionSchema = z.object({
+  status: z.enum(['Approved', 'Rejected']),
+  reviewerNote: z.string().max(1000).optional(),
 });
 
 // ── Company-Admin Users ──────────────────────────────────────────────────────
@@ -189,6 +213,22 @@ export const updateSubscriptionSchema = z.object({
   endDate: z.string().datetime({ offset: true }).optional().or(z.string().regex(/^\d{4}-\d{2}-\d{2}/)).optional(),
 });
 
+export const createOfflinePaymentSchema = z.object({
+  companyId: objectIdSchema,
+  subscriptionId: objectIdSchema.optional(),
+  plan: z.string().min(1).optional(),
+  billingCycle: z.enum(['Monthly', 'Quarterly', 'Annual']).optional(),
+  amount: z.coerce.number().min(0).optional(),
+  status: z.enum(['PENDING', 'PAID', 'FAILED', 'CANCELLED', 'REFUNDED']).optional(),
+  paidAt: z.string().optional(), reference: z.string().max(200).optional(), notes: z.string().max(2000).optional(),
+});
+export const updatePaymentSchema = z.object({ status: z.enum(['PENDING', 'PAID', 'FAILED', 'CANCELLED', 'REFUNDED']).optional(), paidAt: z.string().optional(), reference: z.string().max(200).optional(), notes: z.string().max(2000).optional() });
+export const checkoutSchema = z.object({
+  company: z.object({ name: z.string().min(1), industry: z.string().optional(), email: z.string().email().optional().or(z.literal('')), phone: z.string().optional(), address: z.string().optional(), timezone: z.string().optional() }),
+  admin: z.object({ name: z.string().min(1), email: z.string().email(), password: z.string().min(8) }), plan: z.string().min(1),
+});
+export const verifyEmailSchema = z.object({ token: z.string().min(32) });
+
 // ── Payroll ──────────────────────────────────────────────────────────────────
 export const runPayrollSchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
@@ -212,4 +252,16 @@ export const updateShiftSchema = z.object({
   endTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
   status: z.enum(['Assigned', 'Completed', 'Cancelled']).optional(),
   notes: z.string().optional(),
+  version: z.coerce.number().int().nonnegative().optional(),
+});
+
+export const workflowActionSchema = z.object({
+  action: z.enum(['approve', 'reject', 'cancel']),
+  version: z.coerce.number().int().nonnegative().optional(),
+  reason: z.string().max(1000).optional(),
+});
+
+export const employeeActionSchema = z.object({
+  action: z.enum(['activate', 'start_onboarding', 'start_notice', 'terminate', 'archive']),
+  version: z.coerce.number().int().nonnegative().optional(),
 });

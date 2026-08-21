@@ -19,7 +19,7 @@ export interface CALog {
 }
 
 export interface CACompany {
-  id: string; name: string; industry: string | null; email: string | null;
+  id: string; companyCode: string; name: string; industry: string | null; email: string | null;
   phone: string | null; address: string | null; status: string; plan: string;
   maxUsers: number; planExpiry: string | null;
   subscription: { plan: string; billingCycle: string; amount: number; endDate: string; startDate?: string } | null;

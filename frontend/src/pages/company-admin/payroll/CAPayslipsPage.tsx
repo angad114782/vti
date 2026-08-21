@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { Search, Download, Loader2, X } from 'lucide-react';
+import { Search, Download, Loader2, X, CheckCircle2 } from 'lucide-react';
 import { type Payslip } from '../../../api/hr';
 import { useDebouncedValue } from '../../../hooks/useDebouncedValue';
 import PaginationBar from '../../../components/data/Pagination';
 import { useHrPayslips } from '../../../hooks/queries/useHrQueries';
+import { hrApi } from '../../../api/hr';
+import { useQueryClient } from '@tanstack/react-query';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const YEARS  = ['2024','2025','2026'];
@@ -12,6 +14,7 @@ const TYPES  = ['All Employees','Permanent','Contract'];
 
 const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
   Paid:       { bg: '#dcfce7', color: '#15803d' },
+  Finalized:  { bg: '#dcfce7', color: '#15803d' },
   Processing: { bg: '#fed7aa', color: '#c2410c' },
   'On Hold':  { bg: '#fef9c3', color: '#a16207' },
   Pending:    { bg: '#f1f5f9', color: '#475569' },
@@ -28,12 +31,16 @@ export default function CAPayslipsPage() {
   const [type,        setType]        = useState('All Employees');
   const [page,        setPage]        = useState(1);
   const [viewPayslip, setViewPayslip] = useState<Payslip | null>(null);
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const limit = 20;
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const params: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) params.search = debouncedSearch;
+  if (month !== 'All Months') params.month = String(MONTHS.indexOf(month) + 1);
+  if (year !== 'All Years') params.year = year;
   if (dept !== 'All Departments') params.department = dept;
   if (type !== 'All Employees') params.employmentType = type;
 
@@ -44,6 +51,21 @@ export default function CAPayslipsPage() {
   const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
   const handleDeptChange   = (v: string) => { setDept(v); setPage(1); };
   const handleTypeChange   = (v: string) => { setType(v); setPage(1); };
+  const download = async (id: string, name: string) => {
+    const { data } = await hrApi.downloadPayslip(id);
+    const url = URL.createObjectURL(data); const a = document.createElement('a'); a.href = url; a.download = `${name}.pdf`; a.click(); URL.revokeObjectURL(url);
+  };
+  const markPaid = async (id: string) => {
+    if (!window.confirm('Mark this finalized payslip as paid?')) return;
+    setPayingId(id);
+    try {
+      await hrApi.markPayslipPaid(id);
+      await queryClient.invalidateQueries({ queryKey: ['hr', 'payslips'] });
+      await queryClient.invalidateQueries({ queryKey: ['ca', 'dashboard'] });
+    } finally {
+      setPayingId(null);
+    }
+  };
 
   const selectStyle: React.CSSProperties = {
     padding: '8px 28px 8px 10px', border: '1px solid #e2e8f0', borderRadius: '8px',
@@ -96,7 +118,7 @@ export default function CAPayslipsPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc' }}>
-                {['PAYSLIP ID', 'EMPLOYEE', 'PERIOD', 'NET PAY', 'STATUS'].map((h) => (
+                {['PAYSLIP ID', 'EMPLOYEE', 'PERIOD', 'NET PAY', 'STATUS', 'ACTIONS'].map((h) => (
                   <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
                 ))}
               </tr>
@@ -121,7 +143,10 @@ export default function CAPayslipsPage() {
                       <span style={{ padding: '3px 10px', borderRadius: '12px', fontSize: '10px', fontWeight: 700, backgroundColor: sc.bg, color: sc.color }}>{p.status}</span>
                     </td>
                     <td style={{ padding: '11px 14px', borderBottom: '1px solid #f1f5f9' }}>
-                      <button onClick={(e) => e.stopPropagation()} style={{ background: 'none', border: 'none', cursor: 'not-allowed', color: '#94a3b8', opacity: 0.5 }} title="Download (PDF not yet available)"><Download size={15} /></button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button onClick={(e) => { e.stopPropagation(); if (['Finalized', 'Paid'].includes(p.status)) void download(p.id, p.payslipId); }} disabled={!['Finalized', 'Paid'].includes(p.status)} style={{ background: 'none', border: 'none', cursor: ['Finalized', 'Paid'].includes(p.status) ? 'pointer' : 'not-allowed', color: '#0d7470', opacity: ['Finalized', 'Paid'].includes(p.status) ? 1 : 0.5 }} title="Download payslip"><Download size={15} /></button>
+                        {p.status === 'Finalized' && <button onClick={(e) => { e.stopPropagation(); void markPaid(p.id); }} disabled={payingId === p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', border: '1px solid #bbf7d0', background: '#f0fdf4', color: '#15803d', borderRadius: '6px', padding: '4px 7px', fontSize: '10px', fontWeight: 700, cursor: 'pointer' }} title="Mark as paid">{payingId === p.id ? <Loader2 size={12} /> : <CheckCircle2 size={12} />} Pay</button>}
+                      </div>
                     </td>
                   </tr>
                 );

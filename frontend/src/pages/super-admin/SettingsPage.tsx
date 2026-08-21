@@ -93,9 +93,9 @@ function GeneralTab({ showToast }: { showToast: (m: string, t: 'success' | 'erro
 
   const handleSave = async () => {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setSaving(false);
-    showToast('General settings saved successfully', 'success');
+    try { await api.put('/settings/platform', { general: form }); showToast('General settings saved successfully', 'success'); }
+    catch { showToast('Unable to save general settings', 'error'); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -205,9 +205,9 @@ function SecurityTab({ showToast }: { showToast: (m: string, t: 'success' | 'err
 
   const handleSave = async () => {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 800));
-    setSaving(false);
-    showToast('Security settings saved successfully', 'success');
+    try { await api.put('/settings/platform', { security: { twoFA, sessionTimeout } }); showToast('Security settings saved successfully', 'success'); }
+    catch { showToast('Unable to save security settings', 'error'); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -251,9 +251,9 @@ function NotificationsTab({ showToast }: { showToast: (m: string, t: 'success' |
 
   const handleSave = async () => {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 700));
-    setSaving(false);
-    showToast('Notification preferences saved', 'success');
+    try { await api.put('/settings/platform', { notifications: prefs }); showToast('Notification preferences saved', 'success'); }
+    catch { showToast('Unable to save notification preferences', 'error'); }
+    finally { setSaving(false); }
   };
 
   return (
@@ -296,9 +296,9 @@ function SystemConfigTab({ showToast }: { showToast: (m: string, t: 'success' | 
 
   const handleSave = async () => {
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 900));
-    setSaving(false);
-    showToast('System configuration updated', 'success');
+    try { await api.put('/settings/platform', { system: { maxUsers: Number(maxUsers), maintenance, maintenanceMsg } }); showToast('System configuration updated', 'success'); }
+    catch { showToast('Unable to save system configuration', 'error'); }
+    finally { setSaving(false); }
   };
 
   return (

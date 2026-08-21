@@ -29,7 +29,7 @@ export default function ExpensesPage() {
   const [limit]                       = useState(20);
   const [viewExpense, setViewExpense] = useState<Expense | null>(null);
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const params: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) params.search = debouncedSearch;

@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Save, Shield, Bell, User, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import api from '../../api/axios';
 import { extractError } from '../../utils/errorUtils';
+import { hrApi } from '../../api/hr';
 
-type Tab = 'profile' | 'notifications' | 'security';
+type Tab = 'profile' | 'notifications' | 'security' | 'attendance';
 
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -27,6 +28,14 @@ export default function HRSettingsPage() {
   const [profile, setProfile] = useState({ name: user?.name ?? '', email: user?.email ?? '', phone: '', department: 'Human Resources' });
   const [notifs, setNotifs] = useState({ leaveAlerts: true, attendanceAlerts: true, payrollAlerts: false, approvalReminders: true });
   const [security, setSecurity] = useState({ twoFA: false, sessionTimeout: true });
+  const [attendancePolicy, setAttendancePolicy] = useState({ standardStart: '09:00', standardEnd: '18:00', graceMinutes: 0, overtimeAfterMinutes: 0, breakMinutes: 60, weeklyOffs: [0] });
+  const [policyLoading, setPolicyLoading] = useState(false);
+
+  useEffect(() => {
+    if (tab !== 'attendance') return;
+    setPolicyLoading(true);
+    hrApi.getAttendancePolicy().then(({ data }) => setAttendancePolicy((current) => ({ ...current, ...data }))).catch((err) => toast.error(extractError(err, 'Failed to load attendance policy'))).finally(() => setPolicyLoading(false));
+  }, [tab]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -45,6 +54,7 @@ export default function HRSettingsPage() {
     { key: 'profile', label: 'Profile', icon: User },
     { key: 'notifications', label: 'Notifications', icon: Bell },
     { key: 'security', label: 'Security', icon: Shield },
+    { key: 'attendance', label: 'Attendance Policy', icon: Shield },
   ];
 
   return (
@@ -125,6 +135,25 @@ export default function HRSettingsPage() {
               Save Settings
             </button>
           </div>
+        </div>
+      )}
+
+      {tab === 'attendance' && (
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '22px' }}>
+          <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>Attendance Policy</h3>
+          <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '20px' }}>Configure the company defaults used for late arrival and overtime calculations.</p>
+          {policyLoading ? <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} /> : <>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div><label style={labelStyle}>Standard start</label><input type="time" value={attendancePolicy.standardStart} onChange={(e) => setAttendancePolicy((p) => ({ ...p, standardStart: e.target.value }))} style={inputStyle} /></div>
+              <div><label style={labelStyle}>Standard end</label><input type="time" value={attendancePolicy.standardEnd} onChange={(e) => setAttendancePolicy((p) => ({ ...p, standardEnd: e.target.value }))} style={inputStyle} /></div>
+              <div><label style={labelStyle}>Grace minutes</label><input type="number" min="0" max="180" value={attendancePolicy.graceMinutes} onChange={(e) => setAttendancePolicy((p) => ({ ...p, graceMinutes: Number(e.target.value) }))} style={inputStyle} /></div>
+              <div><label style={labelStyle}>Overtime after minutes</label><input type="number" min="0" max="720" value={attendancePolicy.overtimeAfterMinutes} onChange={(e) => setAttendancePolicy((p) => ({ ...p, overtimeAfterMinutes: Number(e.target.value) }))} style={inputStyle} /></div>
+              <div><label style={labelStyle}>Break minutes</label><input type="number" min="0" max="240" value={attendancePolicy.breakMinutes} onChange={(e) => setAttendancePolicy((p) => ({ ...p, breakMinutes: Number(e.target.value) }))} style={inputStyle} /></div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px' }}>
+              <button onClick={() => { setSaving(true); hrApi.updateAttendancePolicy(attendancePolicy).then(() => toast.success('Attendance policy saved')).catch((err) => toast.error(extractError(err, 'Failed to save attendance policy'))).finally(() => setSaving(false)); }} disabled={saving} style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '9px 22px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', fontFamily: 'Inter, sans-serif', opacity: saving ? 0.8 : 1 }}>{saving ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={13} />} Save Policy</button>
+            </div>
+          </>}
         </div>
       )}
 

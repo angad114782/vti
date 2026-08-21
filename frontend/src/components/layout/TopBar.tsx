@@ -1,5 +1,6 @@
-import { Bell, RefreshCw, Search } from 'lucide-react';
+import { Bell, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import GlobalSearch from '../search/GlobalSearch';
 
 export default function TopBar() {
   const { user } = useAuthStore();
@@ -19,27 +20,7 @@ export default function TopBar() {
       flexShrink: 0,
     }}>
       {/* Search */}
-      <div style={{ position: 'relative', width: '280px' }}>
-        <Search size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-        <input
-          type="text"
-          placeholder="Search..."
-          style={{
-            width: '100%',
-            paddingLeft: '36px',
-            paddingRight: '12px',
-            paddingTop: '8px',
-            paddingBottom: '8px',
-            border: '1.5px solid #e2e8f0',
-            borderRadius: '8px',
-            fontSize: '13px',
-            color: '#0f172a',
-            outline: 'none',
-            backgroundColor: '#f8fafc',
-            fontFamily: 'Inter, sans-serif',
-          }}
-        />
-      </div>
+      <GlobalSearch />
 
       {/* Right */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

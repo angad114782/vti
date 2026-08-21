@@ -8,6 +8,10 @@ const activityLogSchema = new Schema({
   status: { type: String, default: 'Success' },
   ipAddress: String,
   userAgent: String,
+  requestId: String,
+  entityType: String,
+  entityId: String,
+  changes: Schema.Types.Mixed,
 }, { timestamps: { createdAt: true, updatedAt: false } });
 
 activityLogSchema.index({ companyId: 1, createdAt: -1 });

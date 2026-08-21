@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { type Approval } from '../../api/hr';
 import { Search, CheckCircle2, XCircle, AlertTriangle, Clock, Loader2, X } from 'lucide-react';
@@ -21,19 +22,20 @@ const avatarColors = [
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
   { bg: '#f0f9ff', color: '#0ea5e9' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'H').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'User').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
 export default function ApprovalsPage() {
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [typeFilter, setTypeFilter] = useState('ALL');
-  const [page, setPage] = useState(1);
+  const [urlParams, setUrlParams] = useSearchParams();
+  const search = urlParams.get('search') ?? '';
+  const statusFilter = urlParams.get('status') ?? 'ALL';
+  const typeFilter = urlParams.get('type') ?? 'ALL';
+  const page = Math.max(1, Number(urlParams.get('page') ?? '1') || 1);
   const limit = 20;
   const [viewItem, setViewItem] = useState<Approval | null>(null);
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const params: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) params.search = debouncedSearch;
@@ -47,9 +49,14 @@ export default function ApprovalsPage() {
 
   const updateApproval = useUpdateApproval();
 
-  const handleSearchChange = (value: string) => { setSearch(value); setPage(1); };
-  const handleStatusChange = (value: string) => { setStatusFilter(value); setPage(1); };
-  const handleTypeChange   = (value: string) => { setTypeFilter(value);   setPage(1); };
+  const updateUrl = (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(urlParams);
+    Object.entries(changes).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
+    setUrlParams(next, { replace: true });
+  };
+  const handleSearchChange = (value: string) => updateUrl({ search: value || null, page: '1' });
+  const handleStatusChange = (value: string) => updateUrl({ status: value === 'ALL' ? null : value, page: '1' });
+  const handleTypeChange   = (value: string) => updateUrl({ type: value === 'ALL' ? null : value, page: '1' });
 
   const handleAction = (id: string, status: string) => {
     updateApproval.mutate({ id, status }, {
@@ -157,7 +164,7 @@ export default function ApprovalsPage() {
         totalPages={pagination.totalPages}
         total={pagination.total}
         limit={limit}
-        onPageChange={(p) => setPage(p)}
+        onPageChange={(p) => updateUrl({ page: String(p) })}
       />
 
       {/* Detail Modal */}

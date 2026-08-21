@@ -1,6 +1,8 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
+import { storeUploadedFile } from '../utils/objectStorage';
 
 // Base directory for uploads
 const UPLOAD_BASE_DIR = path.join(__dirname, '..', '..', 'uploads');
@@ -12,32 +14,27 @@ const ensureDirExists = (dirPath: string) => {
   }
 };
 
-// Configure disk storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // Determine subdirectory based on field name or request URL path
-    let subDir = 'general';
-    if (file.fieldname === 'document') {
-      subDir = 'documents';
-    } else if (file.fieldname === 'receipt') {
-      subDir = 'receipts';
-    }
+const storage = multer.memoryStorage();
 
-    const targetDir = path.join(UPLOAD_BASE_DIR, subDir);
-    ensureDirExists(targetDir);
-    cb(null, targetDir);
-  },
-  filename: (req, file, cb) => {
-    // Sanitize filename and prepend current timestamp to prevent conflicts
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    const ext = path.extname(file.originalname);
-    const baseName = path.basename(file.originalname, ext)
-      .replace(/[^a-zA-Z0-9]/g, '_') // Replace non-alphanumeric characters with underscore
-      .substring(0, 100); // Limit name length
+function hasExpectedSignature(file: Express.Multer.File, ext: string): boolean {
+  const b = file.buffer;
+  if (ext === '.pdf') return b.subarray(0, 4).toString('ascii') === '%PDF';
+  if (ext === '.png') return b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  if (ext === '.jpg' || ext === '.jpeg') return b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff;
+  if (ext === '.docx' || ext === '.xlsx') return b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04;
+  // CSV is text-based; reject binary control bytes while allowing UTF-8 BOM.
+  if (ext === '.csv') return !b.subarray(0, Math.min(b.length, 4096)).includes(0);
+  return false;
+}
 
-    cb(null, `${baseName}-${uniqueSuffix}${ext}`);
-  }
-});
+export async function persistUpload(file: Express.Multer.File, category: 'documents' | 'receipts') {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (!hasExpectedSignature(file, ext)) throw new Error('The uploaded file content does not match its file type');
+  const baseName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9]/g, '_').substring(0, 100);
+  const filename = `${baseName}-${Date.now()}-${crypto.randomBytes(16).toString('hex')}${ext}`;
+  await storeUploadedFile(category, filename, file.buffer, file.mimetype);
+  return filename;
+}
 
 // Configure file filters
 const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {

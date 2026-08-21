@@ -7,12 +7,16 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "seed": "ts-node-dev --transpile-only src/seed.ts"
+    "seed": "ts-node-dev --transpile-only src/seed.ts",
+    "migrate": "ts-node-dev --transpile-only src/migrate.ts",
+    "test": "npm run build && node --test test/*.test.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@types/nodemailer": "^8.0.1",
+    "@types/pdfkit": "^0.17.6",
     "bcryptjs": "^3.0.3",
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
@@ -22,10 +26,14 @@
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.3",
+    "minio": "^8.0.7",
     "mongoose": "^9.7.3",
     "morgan": "^1.11.0",
     "multer": "^2.2.0",
     "node-cache": "^5.1.2",
+    "nodemailer": "^9.0.5",
+    "pdfkit": "^0.19.1",
+    "razorpay": "^2.9.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {

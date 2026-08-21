@@ -14,13 +14,18 @@ import Company from '../models/Company';
 import CompanyModule from '../models/CompanyModule';
 import ActivityLog from '../models/ActivityLog';
 import RolePermission from '../models/RolePermission';
+import RefreshToken from '../models/RefreshToken';
 import { getCached, invalidate, invalidatePrefix } from '../utils/cache';
+import { getCompanyReference } from '../utils/companyReference';
 
 const resolveCompanyId = (req: AuthRequest): string | undefined => {
   const tokenCompanyId = req.user?.companyId?.toString();
   const queryCompanyId = typeof req.query.companyId === 'string' ? req.query.companyId : undefined;
-  return tokenCompanyId || queryCompanyId;
+  // Tenant users are always bound to the company in their signed token.
+  // Only Super Admin may select a company explicitly for support/administration.
+  return req.user?.role === 'SUPER_ADMIN' ? queryCompanyId : tokenCompanyId;
 };
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 export const getDashboard = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -38,7 +43,7 @@ export const getDashboard = async (req: AuthRequest, res: Response): Promise<voi
         ]),
         LeaveRequest.countDocuments({ companyId, status: 'Pending' }),
         Expense.countDocuments({ companyId, status: 'Pending' }),
-        Payslip.countDocuments({ companyId, status: 'Paid' }),
+        Payslip.countDocuments({ companyId, status: { $in: ['Finalized', 'Paid'] } }),
         User.find({ companyId }).select('role').lean(),
       ]);
 
@@ -88,7 +93,7 @@ export const getUsers = async (req: AuthRequest, res: Response): Promise<void> =
       if (role && role !== 'ALL') where.role = role;
       if (search) {
         const re = escapeRegex(search);
-        where.$or = [{ name: re }, { email: re }];
+        where.$or = [{ nameSearch: re }, { emailSearch: re }];
       }
 
       const [users, total]: [any[], number] = await Promise.all([
@@ -134,9 +139,10 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
   try {
     const companyId = resolveCompanyId(req);
     if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
-    const { name, email, role, password } = req.body as {
+    const { name, role, password } = req.body as {
       name: string; email: string; role: string; password: string;
     };
+    const email = normalizeEmail((req.body as { email: string }).email);
 
     const exists = await User.findOne({ email });
     if (exists) { res.status(409).json({ message: 'Email already in use' }); return; }
@@ -144,7 +150,7 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
     const rawPassword = password || crypto.randomBytes(12).toString('base64url');
     const hashed = await bcrypt.hash(rawPassword, 10);
 
-    const user: any = await User.create({ name, email, password: hashed, role: role as any, companyId, isActive: true });
+    const user: any = await User.create({ name: name.trim(), email, password: hashed, role: role as any, companyId, isActive: true });
 
     invalidatePrefix(`ca:users:${companyId}`);
     invalidate(`ca:dashboard:${companyId}`);
@@ -172,17 +178,15 @@ export const updateUser = async (req: AuthRequest, res: Response): Promise<void>
     const { id } = req.params as { id: string };
     const { role, isActive } = req.body as { role?: string; isActive?: boolean };
 
-    const target = await User.findById(id).lean();
+    const target = await User.findOne({ _id: id, companyId }).lean();
     if (!target) { res.status(404).json({ message: 'User not found' }); return; }
-    if (target.companyId?.toString() !== companyId) {
-      res.status(403).json({ message: 'Forbidden' }); return;
-    }
 
     const update: Record<string, unknown> = {};
-    if (role) update.role = role;
-    if (isActive !== undefined) update.isActive = isActive;
+    if (role) { update.role = role; update.$inc = { sessionVersion: 1 }; }
+    if (isActive !== undefined) { update.isActive = isActive; update.$inc = { sessionVersion: 1 }; }
 
-    const user = await User.findByIdAndUpdate(id, update, { new: true }).select('id name email role isActive');
+  const user = await User.findOneAndUpdate({ _id: id, companyId }, update, { returnDocument: 'after' }).select('id name email role isActive');
+    if (isActive === false || role) await RefreshToken.deleteMany({ userId: id });
     const changes = role ? `role → ${role}` : `isActive → ${isActive}`;
     invalidatePrefix(`ca:users:${companyId}`);
     invalidate(`ca:dashboard:${companyId}`);
@@ -200,13 +204,11 @@ export const deleteUser = async (req: AuthRequest, res: Response): Promise<void>
     if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
     const { id } = req.params as { id: string };
 
-    const target = await User.findById(id).lean();
+    const target = await User.findOne({ _id: id, companyId }).lean();
     if (!target) { res.status(404).json({ message: 'User not found' }); return; }
-    if (target.companyId?.toString() !== companyId) {
-      res.status(403).json({ message: 'Forbidden' }); return;
-    }
 
-    await User.findByIdAndUpdate(id, { isActive: false });
+    await User.findOneAndUpdate({ _id: id, companyId }, { $set: { isActive: false }, $inc: { sessionVersion: 1 } });
+    await RefreshToken.deleteMany({ userId: id });
     invalidatePrefix(`ca:users:${companyId}`);
     invalidate(`ca:dashboard:${companyId}`);
     logActivity(req as any, `Deactivated user "${target.name}"`, 'Users');
@@ -269,6 +271,7 @@ export const getCompany = async (req: AuthRequest, res: Response): Promise<void>
 
     res.json({
       ...company,
+      companyCode: getCompanyReference(company._id, (company as any).companyCode),
       id: company._id.toString(),
       _id: undefined,
       subscription,
@@ -284,8 +287,8 @@ export const updateCompany = async (req: AuthRequest, res: Response): Promise<vo
   try {
     const companyId = resolveCompanyId(req);
     if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
-    const { name, industry, email, phone, address } = req.body as {
-      name?: string; industry?: string; email?: string; phone?: string; address?: string;
+    const { name, industry, email, phone, address, timezone } = req.body as {
+      name?: string; industry?: string; email?: string; phone?: string; address?: string; timezone?: string;
     };
 
     const update: Record<string, unknown> = {};
@@ -294,8 +297,9 @@ export const updateCompany = async (req: AuthRequest, res: Response): Promise<vo
     if (email) update.email = email;
     if (phone) update.phone = phone;
     if (address) update.address = address;
+    if (timezone) update.timezone = timezone;
 
-    const company = await Company.findByIdAndUpdate(companyId, update, { new: true });
+    const company = await Company.findByIdAndUpdate(companyId, update, { returnDocument: 'after' });
     logActivity(req as any, `Updated company settings "${(company as any)?.name ?? companyId}"`, 'Settings');
     res.json(company);
   } catch (err) {
@@ -358,9 +362,14 @@ export const getActivity = async (req: AuthRequest, res: Response): Promise<void
   }
 };
 
-export const getRolePermissions = async (_req: AuthRequest, res: Response): Promise<void> => {
+export const getRolePermissions = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const perms = await RolePermission.find().lean();
+    const companyId = resolveCompanyId(req);
+    const scopedCompanyId = companyId ? new mongoose.Types.ObjectId(companyId) : undefined;
+    let perms = scopedCompanyId
+      ? await RolePermission.find({ companyId: scopedCompanyId }).lean()
+      : await RolePermission.find({ companyId: { $exists: false } }).lean();
+    if (companyId && !perms.length) perms = await RolePermission.find({ companyId: { $exists: false } }).lean();
     res.json(perms);
   } catch (err) {
     console.error(err);
@@ -372,11 +381,13 @@ export const updateRolePermissions = async (req: AuthRequest, res: Response): Pr
   try {
     const { role, permissions } = req.body as { role: string; permissions: Record<string, boolean> };
     if (!role || !permissions) { res.status(400).json({ message: 'role and permissions required' }); return; }
+    const companyId = resolveCompanyId(req);
+    const scopedCompanyId = companyId ? new mongoose.Types.ObjectId(companyId) : undefined;
 
     const ops = Object.entries(permissions).map(([module, isGranted]) => ({
       updateOne: {
-        filter: { role, module },
-        update: { $set: { role, module, permission: module, isGranted } },
+        filter: { ...(scopedCompanyId ? { companyId: scopedCompanyId } : { companyId: { $exists: false } }), role, module },
+        update: { $set: { ...(scopedCompanyId ? { companyId: scopedCompanyId } : {}), role, module, permission: module, isGranted } },
         upsert: true,
       },
     }));

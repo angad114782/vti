@@ -11,8 +11,8 @@ const avatarColors = [
   { bg: '#eef2ff', color: '#6366f1' }, { bg: '#f0fdf4', color: '#10b981' },
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'F').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'User').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
 const NOTIF_GROUPS = [
   {

@@ -8,6 +8,7 @@ import { buildWorkflowState, resolveWorkflowUpdate } from '../utils/workflow';
 import { getCompanyId } from '../utils/authContext';
 import { validateId } from '../utils/validate';
 import { invalidate } from '../utils/cache';
+import { requireCompanyId } from '../utils/scope';
 
 export const getExpenses = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -20,7 +21,7 @@ export const getExpenses = async (req: Request, res: Response): Promise<void> =>
     if (category && category !== 'ALL') where.category = category;
 
     if (search) {
-      const users = await User.find({ name: escapeRegex(search) }).select('_id').lean();
+      const users = await User.find({ $or: [{ nameSearch: escapeRegex(search) }, { emailSearch: escapeRegex(search) }] }).select('_id').lean();
       const emps = await Employee.find({
         userId: { $in: users.map((u) => u._id) },
         companyId,
@@ -31,7 +32,7 @@ export const getExpenses = async (req: Request, res: Response): Promise<void> =>
     const [expenses, total] = await Promise.all([
       Expense.find(where)
         .populate({ path: 'employeeId', populate: { path: 'userId', select: 'name' } })
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: -1, _id: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
@@ -57,7 +58,8 @@ export const updateExpense = async (req: Request, res: Response): Promise<void> 
     const { id } = req.params as { id: string };
     validateId(id);
     const { status } = req.body as { status: string };
-    const existing = await Expense.findById(id);
+    const companyId = requireCompanyId(req);
+    const existing = await Expense.findOne({ _id: id, companyId });
     if (!existing) { res.status(404).json({ message: 'Expense not found' }); return; }
     if (!existing.pendingRole || !existing.workflowStep) {
       const state = await buildWorkflowState(req, 'expense');
@@ -67,13 +69,19 @@ export const updateExpense = async (req: Request, res: Response): Promise<void> 
       await existing.save();
     }
 
-    const result = await resolveWorkflowUpdate(req, 'expense', existing.workflowStep as number, status);
+    if (existing.requesterUserId?.toString() === (req as any).user?.userId) {
+      res.status(403).json({ message: 'A requester cannot approve or reject their own expense' });
+      return;
+    }
+    const snapshot = existing.workflowSnapshot as any;
+    const result = await resolveWorkflowUpdate(req, 'expense', existing.workflowStep as number, status, snapshot, existing.delegatedTo?.toString());
     if (result.error) { res.status(403).json({ message: result.error }); return; }
     const update = result.update;
     if (!update) { res.status(400).json({ message: 'No workflow update generated' }); return; }
 
-    const expense = await Expense.findByIdAndUpdate(id, update, { new: true });
-    const companyId = getCompanyId(req);
+    const expectedVersion = Number((req.body as Record<string, unknown>).version ?? existing.version ?? 0);
+  const expense = await Expense.findOneAndUpdate({ _id: id, companyId, version: expectedVersion, status: 'Pending' }, { $set: update, $inc: { version: 1 } }, { returnDocument: 'after' });
+    if (!expense) { res.status(409).json({ message: 'Expense was already processed or changed', code: 'VERSION_CONFLICT' }); return; }
     if (companyId) invalidate(`ca:dashboard:${companyId}`);
     logActivity(req, `Expense ${update.status} — ${existing.get('category')} ₹${existing.get('amount')}`, 'Expenses');
     res.json(expense);

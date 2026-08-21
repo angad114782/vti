@@ -107,18 +107,25 @@ export const createShift = async (req: Request, res: Response) => {
     notes?: string;
   };
 
-  const employee = await Employee.findById(employeeId).lean();
+  const employee = await Employee.findOne({ _id: employeeId, companyId }).lean();
   if (!employee) { res.status(404).json({ message: 'Employee not found' }); return; }
-  if (employee.companyId?.toString() !== companyId) { res.status(403).json({ message: 'Forbidden' }); return; }
+  const shiftStart = startTime || SHIFT_META[shiftName as keyof typeof SHIFT_META].startTime;
+  const shiftEnd = endTime || SHIFT_META[shiftName as keyof typeof SHIFT_META].endTime;
+  const parsedDate = new Date(date);
+  if (Number.isNaN(parsedDate.getTime())) { res.status(400).json({ message: 'Invalid shift date' }); return; }
+  if (!/^\d{2}:\d{2}$/.test(shiftStart) || !/^\d{2}:\d{2}$/.test(shiftEnd)) { res.status(400).json({ message: 'Shift times must use HH:MM format' }); return; }
+  if (await Shift.exists({ employeeId, companyId, date: { $gte: new Date(parsedDate.setHours(0, 0, 0, 0)), $lt: new Date(parsedDate.getTime() + 86400000) }, status: { $ne: 'Cancelled' } })) {
+    res.status(409).json({ message: 'Employee already has an active shift on this date', code: 'DUPLICATE_SHIFT' }); return;
+  }
 
   const shift = await Shift.create({
     employeeId,
     companyId,
     department: employee.department ?? 'Unassigned',
-    date: new Date(date),
+    date: parsedDate,
     shiftName,
-    startTime: startTime || SHIFT_META[shiftName as keyof typeof SHIFT_META].startTime,
-    endTime: endTime || SHIFT_META[shiftName as keyof typeof SHIFT_META].endTime,
+    startTime: shiftStart,
+    endTime: shiftEnd,
     notes,
   });
 
@@ -130,17 +137,19 @@ export const updateShift = async (req: Request, res: Response) => {
   const companyId = getCompanyId(req);
   const { id } = req.params as { id: string };
   validateId(id);
-  const { shiftName, startTime, endTime, status, notes } = req.body as Record<string, string>;
+  const { shiftName, startTime, endTime, status, notes, version } = req.body as Record<string, string>;
 
-  const shift = await Shift.findById(id);
+  const shift = await Shift.findOne({ _id: id, companyId });
   if (!shift) { res.status(404).json({ message: 'Shift not found' }); return; }
-  if (shift.get('companyId')?.toString() !== companyId) { res.status(403).json({ message: 'Forbidden' }); return; }
 
+  const expectedVersion = Number(version ?? shift.get('version') ?? 0);
+  if (Number(shift.get('version') ?? 0) !== expectedVersion) { res.status(409).json({ message: 'Shift was changed by another user', code: 'VERSION_CONFLICT' }); return; }
   if (shiftName) shift.set('shiftName', shiftName);
   if (startTime) shift.set('startTime', startTime);
   if (endTime) shift.set('endTime', endTime);
   if (status) shift.set('status', status);
   if (notes !== undefined) shift.set('notes', notes);
+  shift.set('version', expectedVersion + 1);
   await shift.save();
 
   const shiftLabel = `${shift.get('shiftName') ?? 'shift'} on ${new Date(shift.get('date')).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;

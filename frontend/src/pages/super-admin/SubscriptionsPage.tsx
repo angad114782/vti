@@ -5,6 +5,7 @@ import { type Company } from '../../api/companies';
 import { useSaSubscriptions, useSaPlans, useSaCompanies } from '../../hooks/queries/useSaQueries';
 import { extractError } from '../../utils/errorUtils';
 import { getPlanBadge } from '../../utils/planColors';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import {
   IndianRupee, Users, Clock, AlertTriangle,
   Search, Check, X, Loader2, ChevronLeft, ChevronRight,
@@ -28,8 +29,8 @@ const avatarColors = [
   { bg: '#f0f9ff', color: '#0ea5e9' }, { bg: '#f0fdf4', color: '#10b981' },
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
 ];
-const getAvatarColor = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length];
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAvatarColor = (name?: string) => avatarColors[(name ?? 'S').charCodeAt(0) % avatarColors.length];
+const initials = (name?: string) => (name ?? 'Subscription').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 const fmtINR = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 const isExpiringSoon = (d: string) => { const dt = new Date(d); return dt > new Date() && dt < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); };
@@ -511,9 +512,10 @@ export default function SubscriptionsPage() {
   const [editSub,         setEditSub]         = useState<Subscription | null>(null);
   const [editPlan,        setEditPlan]        = useState<PlanData | null>(null);
   const [deletePlanTarget, setDeletePlanTarget] = useState<PlanData | null>(null);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const subParams: Record<string, string> = { page: String(page), limit: '8' };
-  if (search) subParams.search = search;
+  if (debouncedSearch.trim().length >= 2) subParams.search = debouncedSearch.trim();
   if (planFilter !== 'ALL') subParams.plan = planFilter;
   if (billingFilter !== 'ALL') subParams.billing = billingFilter;
   if (statusFilter !== 'ALL') subParams.status = statusFilter;

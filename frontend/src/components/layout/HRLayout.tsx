@@ -1,8 +1,9 @@
 import { Outlet, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import HRSidebar from './HRSidebar';
-import { Search, Bell, HelpCircle } from 'lucide-react';
+import { Bell, HelpCircle } from 'lucide-react';
 import { ErrorBoundary } from '../ErrorBoundary';
+import GlobalSearch from '../search/GlobalSearch';
 
 function HRTopBar() {
   const { user } = useAuthStore();
@@ -12,12 +13,10 @@ function HRTopBar() {
 
   return (
     <div style={{ height: '60px', backgroundColor: 'white', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', padding: '0 24px', gap: '16px', position: 'sticky', top: 0, zIndex: 10 }}>
-      <div style={{ position: 'relative', flex: 1, maxWidth: '320px' }}>
-        <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-        <input placeholder="Search" style={{ width: '100%', paddingLeft: '32px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
-      </div>
+      <GlobalSearch />
 
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <span style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>{user?.company?.name ?? 'Company'}{user?.company?.companyCode ? ` (${user.company.companyCode})` : ''}</span>
         <span style={{ fontSize: '13px', color: '#374151', fontWeight: 500 }}>{month}, {year}</span>
         <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}><HelpCircle size={18} /></button>
         <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', position: 'relative' }}>

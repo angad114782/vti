@@ -2,10 +2,11 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, CalendarCheck, Users, CreditCard,
   CheckSquare, BarChart2, Settings, LogOut, ChevronDown,
-  Building2, Shield, GitBranch, UserCog, Blocks, ClipboardList,
+  Building2, Shield, GitBranch, UserCog, Blocks, ClipboardList, LifeBuoy,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore } from '../../store/authStore';
+import { useAccess } from '../../hooks/queries/useAccess';
 
 const NAV_TOP = [
   { to: '/company-admin/dashboard',  label: 'Dashboard',  Icon: LayoutDashboard },
@@ -29,6 +30,7 @@ const NAV_BOT = [
   { to: '/company-admin/reports',   label: 'Reports',   Icon: BarChart2   },
   { to: '/company-admin/activity',  label: 'Activity',  Icon: ClipboardList },
   { to: '/company-admin/modules',   label: 'Modules',   Icon: Blocks },
+  { to: '/company-admin/support',   label: 'Help & Support', Icon: LifeBuoy },
 ];
 
 const SETTINGS_ITEMS = [
@@ -41,6 +43,7 @@ export default function CompanyAdminSidebar() {
   const navigate   = useNavigate();
   const location   = useLocation();
   const { logout } = useAuthStore();
+  const access = useAccess();
   const { search } = location;
   const toWithContext = (path: string) => (search && search.includes('companyId=') ? { pathname: path, search } : path);
 
@@ -102,10 +105,10 @@ export default function CompanyAdminSidebar() {
         ))}
 
         {/* Payroll expandable */}
-        {expandBtn('Payroll', CreditCard, payrollOpen, isPayroll, () => setPayrollOpen((p) => !p))}
-        {payrollOpen && (
+        {(access.can('Payroll — View') || access.can('Payroll — Process')) && expandBtn('Payroll', CreditCard, payrollOpen, isPayroll, () => setPayrollOpen((p) => !p))}
+        {payrollOpen && (access.can('Payroll — View') || access.can('Payroll — Process')) && (
           <div style={{ paddingLeft: '12px', display: 'flex', flexDirection: 'column', gap: '1px' }}>
-            {PAYROLL_ITEMS.map(({ to, label }) => (
+            {PAYROLL_ITEMS.filter(({ to }) => access.can(to.endsWith('/run') ? 'Payroll — Process' : 'Payroll — View')).map(({ to, label }) => (
               <NavLink key={to} to={toWithContext(to)} style={({ isActive }) => ({ ...linkStyle(isActive), fontSize: '12px', padding: '7px 10px' })}>
                 {({ isActive }) => (
                   <>

@@ -20,8 +20,8 @@ const avatarColors = [
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
   { bg: '#f0f9ff', color: '#0ea5e9' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'F').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'User').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const fmtPay = (n: number) => `₹${n.toLocaleString('en-IN')}`;
 
 function StepBar({ step }: { step: Step }) {
@@ -64,8 +64,9 @@ export default function FinancePayrollPage() {
 
   // Initialize rows once employees are loaded
   useEffect(() => {
-    if (employees.length > 0 && rows.length === 0) {
-      setRows(employees.map((e) => ({
+    const loadedEmployees = empData?.employees ?? [];
+    if (loadedEmployees.length > 0 && rows.length === 0) {
+      setRows(loadedEmployees.map((e) => ({
         emp: e,
         selected: false,
         daysPresent: 0,
@@ -73,7 +74,7 @@ export default function FinancePayrollPage() {
         ot: 0,
       })));
     }
-  }, [employees]);
+  }, [empData?.employees, rows.length]);
 
   const toggleAll = (v: boolean) => setRows((r) => r.map((x) => ({ ...x, selected: v })));
   const toggleRow = (id: string) => setRows((r) => r.map((x) => x.emp.id === id ? { ...x, selected: !x.selected } : x));

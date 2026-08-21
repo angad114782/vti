@@ -7,12 +7,12 @@ export interface Employee {
   shiftType: string | null; shiftTiming: string | null; joiningDate: string | null;
   annualCtc: number | null; employmentType: string; status: string;
   bankName: string | null; branchName: string | null; accountHolder: string | null;
-  user: { id: string; name: string; email: string; role: string };
+  version?: number; user: { id: string; name: string; email: string; role: string };
 }
 
 export interface LeaveRequest {
   id: string; leaveType: string; startDate: string; endDate: string; days: number;
-  reason: string | null; status: string; createdAt: string;
+  reason: string | null; status: string; version?: number; createdAt: string;
   employee: { id: string; employeeId: string; department: string | null; user: { name: string; email: string } };
 }
 
@@ -28,7 +28,7 @@ export interface SalaryRow {
 
 export interface Payslip {
   id: string; payslipId: string; period: string; month: number; year: number;
-  grossSalary: number; totalDeductions: number; netPay: number; status: string;
+  grossSalary: number; totalDeductions: number; netPay: number; status: string; paymentStatus?: string; paidAt?: string;
   employee: { id: string; employeeId: string; user: { name: string } };
 }
 
@@ -83,8 +83,9 @@ export const hrApi = {
   // Employees
   getEmployees: (p?: Record<string, string>) => api.get<{ employees: Employee[]; pagination: Pagination; stats: { total: number; active: number; inactive: number; departments: number } }>('/hr/employees', { params: p }),
   getEmployee:  (id: string)                 => api.get<Employee>(`/hr/employees/${id}`),
-  createEmployee: (data: Record<string, string>) => api.post<Employee & { generatedPassword: string }>('/hr/employees', data),
+  createEmployee: (data: Record<string, string>, idempotencyKey?: string) => api.post<Employee & { generatedPassword: string }>('/hr/employees', data, idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined),
   updateEmployee: (id: string, data: Record<string, string>) => api.patch<Employee>(`/hr/employees/${id}`, data),
+  employeeAction: (id: string, data: { action: string; version?: number }) => api.post<Employee>(`/hr/employees/${id}/actions`, data),
   getDepartments: ()                         => api.get<{ name: string; count: number }[]>('/hr/employees/departments'),
 
   // Attendance
@@ -101,10 +102,13 @@ export const hrApi = {
     api.post('/hr/shifts', data),
   updateShift: (id: string, data: { shiftName?: 'Morning' | 'Evening' | 'Night'; startTime?: string; endTime?: string; status?: 'Assigned' | 'Completed' | 'Cancelled'; notes?: string }) =>
     api.patch(`/hr/shifts/${id}`, data),
+  getAttendancePolicy: () => api.get<{ standardStart: string; standardEnd: string; graceMinutes: number; overtimeAfterMinutes: number; breakMinutes: number; weeklyOffs: number[] }>('/hr/attendance-policy'),
+  updateAttendancePolicy: (data: { standardStart: string; standardEnd: string; graceMinutes: number; overtimeAfterMinutes: number; breakMinutes: number; weeklyOffs: number[] }) => api.put('/hr/attendance-policy', data),
 
   // Leaves
-  getLeaves: (p?: Record<string, string>) => api.get<{ leaves: LeaveRequest[]; pagination: Pagination; stats: { total: number; pending: number; approved: number; rejected: number } }>('/hr/leaves', { params: p }),
+  getLeaves: (p?: Record<string, string>) => api.get<{ leaves: LeaveRequest[]; pagination: Pagination; stats: { total: number; pending: number; approved: number; rejected: number; filtered?: boolean } }>('/hr/leaves', { params: p }),
   updateLeave: (id: string, status: string) => api.patch(`/hr/leaves/${id}`, { status }),
+  leaveAction: (id: string, data: { action: string; version?: number; reason?: string }) => api.post(`/hr/leaves/${id}/actions`, data),
 
   // Approvals
   getApprovals: (p?: Record<string, string>) => api.get<{ approvals: Approval[]; pagination: Pagination; stats: { pending: number; approvedToday: number; rejected: number; escalated: number } }>('/hr/approvals', { params: p }),
@@ -113,8 +117,11 @@ export const hrApi = {
   // Payroll
   getSalary:   (p?: Record<string, string>) => api.get<{ results: SalaryRow[]; pagination: Pagination }>('/hr/payroll/salary', { params: p }),
   getPayslips: (p?: Record<string, string>) => api.get<{ payslips: Payslip[]; pagination: Pagination }>('/hr/payroll/payslips', { params: p }),
+  downloadPayslip: (id: string) => api.get<Blob>(`/hr/payroll/payslips/${id}/download`, { responseType: 'blob' }),
+  markPayslipPaid: (id: string) => api.post<Payslip>(`/hr/payroll/payslips/${id}/pay`),
   runPayroll: (data: { month: number; year: number; employeeIds?: string[] }) =>
     api.post<{ message: string; period: string; month: number; year: number; created: number; skipped: number }>('/hr/payroll/run', data),
+  finalizePayroll: (id: string) => api.post(`/hr/payroll/runs/${id}/finalize`),
 
   // Reports
   getWorkforceReport: () => api.get('/hr/reports/workforce'),
@@ -133,4 +140,5 @@ export const hrApi = {
   },
   createDocument: (data: Record<string, string>) => api.post<Document>('/hr/documents', data),
   deleteDocument: (id: string)                  => api.delete(`/hr/documents/${id}`),
+  downloadDocument: (fileUrl: string) => api.get<Blob>(fileUrl.replace(/^\/api/, ''), { responseType: 'blob' }),
 };

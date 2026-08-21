@@ -8,15 +8,14 @@ import {
 } from 'lucide-react';
 import { type Company } from '../../api/companies';
 import { type ActivityLog } from '../../api/activity';
-import { type RevenueTrendPoint } from '../../api/subscriptions';
 import { getPlanBadge } from '../../utils/planColors';
 import { useSaCompanies, useSaActivity, useSaPlans, useSaRevenueTrend } from '../../hooks/queries/useSaQueries';
 
-const ini = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const ini = (name?: string) => (name ?? 'System').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const avatarBg = ['#eef2ff', '#f5f3ff', '#f0f9ff', '#f0fdf4', '#fffbeb', '#fdf4ff'];
 const avatarColor = ['#6366f1', '#8b5cf6', '#0ea5e9', '#10b981', '#f59e0b', '#ec4899'];
 const getAv = (name: string) => {
-  const i = name.charCodeAt(0) % avatarBg.length;
+  const i = (name ?? 'A').charCodeAt(0) % avatarBg.length;
   return { bg: avatarBg[i]!, color: avatarColor[i]! };
 };
 const timeAgo = (iso: string) => {
@@ -38,7 +37,7 @@ export default function DashboardPage() {
   const { data: actData,    isLoading: actLoading   } = useSaActivity({ limit: '5' });
   const { data: revenueTrend = [] } = useSaRevenueTrend();
 
-  const companies   = (compData?.companies  ?? []) as Company[];
+  const companies   = useMemo(() => (compData?.companies ?? []) as Company[], [compData?.companies]);
   const rawStats    = compData?.stats       ?? { total: 0, active: 0, trial: 0, expiringSoon: 0 };
   const activities  = (actData?.logs        ?? []) as ActivityLog[];
   const loading     = compLoading || plansLoading || actLoading;
@@ -122,7 +121,7 @@ export default function DashboardPage() {
               width={55}
             />
             <Tooltip
-              formatter={(v: number) => [`₹${v.toLocaleString('en-IN')}`, 'Revenue']}
+              formatter={(v) => [`₹${Number(v ?? 0).toLocaleString('en-IN')}`, 'Revenue']}
               contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12px', fontFamily: 'Inter, sans-serif' }}
             />
             <Line

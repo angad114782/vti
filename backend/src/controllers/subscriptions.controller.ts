@@ -23,7 +23,7 @@ export const getSubscriptions = async (req: Request, res: Response): Promise<voi
       const re = escapeRegex(search);
       const companies = await Company.find({
         isDeleted: { $ne: true },
-        $or: [{ name: re }, { industry: re }],
+        $or: [{ name: re }, { nameSearch: re }, { companyCode: re }, { industry: re }, { industrySearch: re }, { email: re }, { emailSearch: re }],
       }).select('_id').lean();
       companyIds = companies.map((c) => c._id.toString());
       subWhere.companyId = { $in: companyIds };
@@ -34,7 +34,8 @@ export const getSubscriptions = async (req: Request, res: Response): Promise<voi
         .skip(skip)
         .limit(limit)
         .sort({ createdAt: -1 })
-        .populate('companyId', '_id name industry plan isDeleted'),
+        .populate('companyId', '_id name companyCode industry plan isDeleted')
+        .populate('planId', 'name type price maxUsers features'),
       Subscription.countDocuments(subWhere),
     ]);
 
@@ -117,7 +118,7 @@ export const updatePlan = async (req: Request, res: Response): Promise<void> => 
     if (maxUsers !== undefined) update.maxUsers = maxUsers;
     if (features !== undefined) update.features = features;
     if (isActive !== undefined) update.isActive = isActive;
-    const plan = await Plan.findByIdAndUpdate(id, update, { new: true });
+    const plan = await Plan.findByIdAndUpdate(id, update, { returnDocument: 'after' });
     if (!plan) { res.status(404).json({ message: 'Plan not found' }); return; }
     logActivity(req, `Updated plan "${(plan as any).name}"`, 'Subscriptions');
     res.json(plan);
@@ -144,7 +145,7 @@ export const assignPlan = async (req: Request, res: Response): Promise<void> => 
     await Subscription.findOneAndUpdate(
       { companyId },
       {
-        $set: { plan, billingCycle: billingCycle ?? 'Monthly', amount: planData.get('price'), endDate, isActive: true },
+        $set: { planId: planData._id, plan, billingCycle: billingCycle ?? 'Monthly', amount: planData.get('price'), endDate, isActive: true },
         $setOnInsert: { companyId, startDate: new Date() },
       },
       { upsert: true, returnDocument: "after" },
@@ -155,7 +156,7 @@ export const assignPlan = async (req: Request, res: Response): Promise<void> => 
       status: 'ACTIVE',
       planExpiry: endDate,
       maxUsers: planData.get('maxUsers'),
-    }, { new: true });
+    }, { returnDocument: 'after' });
 
     // Auto-provision modules for this plan (upsert only — never overwrites existing isEnabled)
     const availableModules = await Module.find({ availableFor: plan }).lean();
@@ -267,7 +268,7 @@ export const updateSubscription = async (req: Request, res: Response): Promise<v
     if (isActive !== undefined) update.isActive = isActive;
     if (endDate) update.endDate = new Date(endDate);
 
-    const sub = await Subscription.findByIdAndUpdate(id, update, { new: true }).populate('companyId', '_id name industry plan');
+  const sub = await Subscription.findByIdAndUpdate(id, update, { returnDocument: 'after' }).populate('companyId', '_id name industry plan');
     const coName = (sub as any)?.companyId?.name ?? id;
     logActivity(req, `Updated subscription for "${coName}"`, 'Subscriptions');
     res.json(sub);

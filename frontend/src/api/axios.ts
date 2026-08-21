@@ -33,6 +33,9 @@ api.interceptors.response.use(
     }
 
     const status = error.response?.status;
+    if (status === 409) {
+      toast.error(error.response?.data?.message ?? 'This record changed. Refresh and try again.');
+    }
     if (status && status >= 500) {
       toast.error('Server error. Please try again.');
     }

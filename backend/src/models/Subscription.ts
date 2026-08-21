@@ -2,6 +2,7 @@ import mongoose, { Schema } from 'mongoose';
 
 const subscriptionSchema = new Schema({
   companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true, unique: true },
+  planId: { type: Schema.Types.ObjectId, ref: 'Plan', required: false, index: true },
   plan: { type: String, required: true },
   billingCycle: { type: String, default: 'Monthly' },
   amount: { type: Number, required: true },

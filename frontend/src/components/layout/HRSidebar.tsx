@@ -1,5 +1,6 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
+import { useAccess } from '../../hooks/queries/useAccess';
 import {
   LayoutDashboard, Users, Clock, CalendarDays,
   CheckSquare, DollarSign, FileText, Settings, LogOut,
@@ -18,11 +19,12 @@ const NAV = [
 
 export default function HRSidebar() {
   const { user, logout } = useAuthStore();
+  const access = useAccess();
   const navigate = useNavigate();
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
-  const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  const initials = (name?: string) => (name ?? 'HR').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
   return (
     <div style={{ width: '220px', minHeight: '100vh', backgroundColor: '#0d4a47', display: 'flex', flexDirection: 'column', flexShrink: 0, position: 'sticky', top: 0 }}>
@@ -33,7 +35,7 @@ export default function HRSidebar() {
 
       {/* Nav */}
       <nav style={{ flex: 1, padding: '12px 0', overflowY: 'auto' }}>
-        {NAV.map(({ to, label, icon: Icon }) => (
+        {NAV.filter(({ to }) => to !== '/hr/payroll' || (access.can('Payroll — View') && access.moduleEnabled('Payroll'))).map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} style={({ isActive }) => ({
             display: 'flex', alignItems: 'center', gap: '10px',
             padding: '10px 20px', textDecoration: 'none', transition: 'all 0.15s',

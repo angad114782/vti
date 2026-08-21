@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { supportApi, type SupportTicket } from '../../api/support';
 import { useSaSupport } from '../../hooks/queries/useSaQueries';
 import { extractError } from '../../utils/errorUtils';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import {
   TicketCheck, AlertCircle, Clock, CheckCircle2,
   Search, X, ChevronLeft, ChevronRight,
@@ -53,8 +54,8 @@ const avatarColors = [
   { bg: '#f0f9ff', color: '#0ea5e9' }, { bg: '#f0fdf4', color: '#10b981' },
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'S').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'Support').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 const fmtFull = (d: string) => new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
@@ -277,9 +278,10 @@ function TicketsTab() {
   const [page,          setPage]          = useState(1);
   const [viewTicket,    setViewTicket]    = useState<SupportTicket | null>(null);
   const [showNew,       setShowNew]       = useState(false);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const ticketParams: Record<string, string> = { page: String(page), limit: '10' };
-  if (search) ticketParams.search = search;
+  if (debouncedSearch.trim().length >= 2) ticketParams.search = debouncedSearch.trim();
   if (statusFilter !== 'ALL') ticketParams.status = statusFilter;
   if (priorityFilter !== 'ALL') ticketParams.priority = priorityFilter;
   if (companyFilter !== 'ALL') ticketParams.company = companyFilter;

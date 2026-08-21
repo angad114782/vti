@@ -10,6 +10,7 @@ const shiftSchema = new Schema({
   endTime: { type: String, required: true },
   status: { type: String, enum: ['Assigned', 'Completed', 'Cancelled'], default: 'Assigned' },
   notes: { type: String },
+  version: { type: Number, default: 0 },
 }, { timestamps: true });
 
 shiftSchema.index({ companyId: 1, date: 1 });

@@ -4,7 +4,10 @@ import { hrApi } from '../../api/hr';
 export const useCreateEmployee = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Record<string, string>) => hrApi.createEmployee(data).then((r) => r.data),
+    mutationFn: (data: Record<string, string>) => {
+      const key = globalThis.crypto?.randomUUID?.() ?? `employee-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      return hrApi.createEmployee(data, key).then((r) => r.data);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hr', 'employees'] });
       qc.invalidateQueries({ queryKey: ['hr', 'departments'] });
@@ -50,6 +53,20 @@ export const useUpdateLeave = () => {
       qc.invalidateQueries({ queryKey: ['hr', 'leaves'] });
       qc.invalidateQueries({ queryKey: ['ca', 'dashboard'] });
       qc.invalidateQueries({ queryKey: ['emp', 'leaves'] });
+    },
+  });
+};
+
+export const useLeaveAction = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, action, version, reason }: { id: string; action: 'approve' | 'reject' | 'cancel'; version?: number; reason?: string }) =>
+      hrApi.leaveAction(id, { action, version, reason }).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hr', 'leaves'] });
+      qc.invalidateQueries({ queryKey: ['emp', 'leaves'] });
+      qc.invalidateQueries({ queryKey: ['hr', 'attendance'] });
+      qc.invalidateQueries({ queryKey: ['ca', 'dashboard'] });
     },
   });
 };

@@ -7,6 +7,7 @@ import { logActivity } from '../utils/activity';
 import { buildWorkflowState, resolveWorkflowUpdate } from '../utils/workflow';
 import { getCompanyId } from '../utils/authContext';
 import { validateId } from '../utils/validate';
+import { requireCompanyId } from '../utils/scope';
 
 export const getApprovals = async (req: Request, res: Response) => {
   const companyId = getCompanyId(req);
@@ -18,7 +19,7 @@ export const getApprovals = async (req: Request, res: Response) => {
   if (type && type !== 'ALL') where.type = type;
 
   if (search) {
-    const users = await User.find({ name: escapeRegex(search) }).select('_id').lean();
+    const users = await User.find({ $or: [{ nameSearch: escapeRegex(search) }, { emailSearch: escapeRegex(search) }] }).select('_id').lean();
     const emps = await Employee.find({ userId: { $in: users.map((u) => u._id) }, companyId }).select('_id').lean();
     where.employeeId = { $in: emps.map((e) => e._id) };
   }
@@ -29,7 +30,7 @@ export const getApprovals = async (req: Request, res: Response) => {
   const [approvals, filteredTotal, pending, approved, rejected] = await Promise.all([
     Approval.find(where)
       .populate({ path: 'employeeId', populate: { path: 'userId', select: 'name' } })
-      .sort({ createdAt: -1 })
+      .sort({ createdAt: -1, _id: -1 })
       .skip(skip)
       .limit(limit)
       .lean(),
@@ -52,7 +53,8 @@ export const updateApproval = async (req: Request, res: Response) => {
   const id = req.params.id as string;
   validateId(id);
   const { status } = req.body as { status: string };
-  const existing = await Approval.findById(id);
+  const companyId = requireCompanyId(req);
+  const existing = await Approval.findOne({ _id: id, companyId });
   if (!existing) {
     res.status(404).json({ message: 'Approval not found' });
     return;
@@ -65,7 +67,11 @@ export const updateApproval = async (req: Request, res: Response) => {
     await existing.save();
   }
 
-  const result = await resolveWorkflowUpdate(req, 'correction', existing.workflowStep as number, status);
+  if (existing.requesterUserId?.toString() === (req as any).user?.userId) {
+    res.status(403).json({ message: 'A requester cannot approve or reject their own approval request' });
+    return;
+  }
+  const result = await resolveWorkflowUpdate(req, 'correction', existing.workflowStep as number, status, existing.workflowSnapshot as any, existing.delegatedTo?.toString());
   if (result.error) {
     res.status(403).json({ message: result.error });
     return;
@@ -76,8 +82,10 @@ export const updateApproval = async (req: Request, res: Response) => {
     return;
   }
 
-  const approval = await Approval.findByIdAndUpdate(id, update, { new: true })
+  const expectedVersion = Number((req.body as Record<string, unknown>).version ?? existing.get('version') ?? 0);
+  const approval = await Approval.findOneAndUpdate({ _id: id, companyId, status: 'Pending', version: expectedVersion }, { $set: update, $inc: { version: 1 } }, { returnDocument: 'after' })
     .populate({ path: 'employeeId', populate: { path: 'userId', select: 'name' } });
+  if (!approval) { res.status(409).json({ message: 'Approval was already processed', code: 'CONFLICT' }); return; }
   const empName = (approval as any)?.employeeId?.userId?.name ?? 'employee';
   logActivity(req, `Approval ${update.status} — ${empName}`, 'Approvals');
   res.json(approval);

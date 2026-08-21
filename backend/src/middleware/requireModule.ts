@@ -23,7 +23,7 @@ export const requireModule = (moduleName: string) => async (
     const mod = await Module.findOne({ name: moduleName }).lean();
     if (!mod) {
       // Module not found in DB — treat as enabled (graceful degradation).
-      next();
+      next(new AppError('MODULE_NOT_CONFIGURED', `Module '${moduleName}' is not configured`, 403));
       return;
     }
 

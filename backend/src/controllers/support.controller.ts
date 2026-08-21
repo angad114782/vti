@@ -1,116 +1,74 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import SupportTicket from '../models/SupportTicket';
+import SupportComment from '../models/SupportComment';
 import Company from '../models/Company';
+import User from '../models/User';
+import { AuthRequest } from '../middleware/auth.middleware';
 import { escapeRegex, clampLimit } from '../utils/query';
-import { getUserId } from '../utils/authContext';
+import { getAuth } from '../utils/authContext';
+import { getCompanyReference } from '../utils/companyReference';
 import { logActivity } from '../utils/activity';
+import { nextSupportTicketNumber } from '../utils/ticketNumber';
 
-export const getTickets = async (req: Request, res: Response) => {
-  const page = (req.query.page as string) || '1';
-  const limit = clampLimit(req.query.limit as string | undefined);
-  const search = req.query.search as string | undefined;
-  const status = req.query.status as string | undefined;
-  const priority = req.query.priority as string | undefined;
-  const company = req.query.company as string | undefined;
-  const skip = (parseInt(page) - 1) * limit;
+const managementRoles = new Set(['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']);
+const companyScope = (req: AuthRequest) => req.user?.role === 'SUPER_ADMIN' ? {} : { companyId: req.user?.companyId };
+const populateTicket = (query: any) => query.populate('userId', 'id name email role').populate('assignedTo', 'id name email role').populate('companyId', 'id name companyCode');
 
-  const where: Record<string, unknown> = {};
-  if (status && status !== 'ALL') where.status = status;
-  if (priority && priority !== 'ALL') where.priority = priority;
-  if (company && company !== 'ALL') where.companyId = company;
-  if (search) {
-    const re = escapeRegex(search);
-    where.$or = [
-      { subject: re },
-      { ticketNo: re },
-      { category: re },
-    ];
-  }
-
-  const [tickets, total] = await Promise.all([
-    SupportTicket.find(where)
-      .populate('userId', 'id name email role')
-      .populate('companyId', 'id name')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit),
-    SupportTicket.countDocuments(where),
+export const getTickets = async (req: AuthRequest, res: Response): Promise<void> => {
+  const auth = getAuth(req); const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1); const limit = clampLimit(req.query.limit as string | undefined, 20); const skip = (page - 1) * limit;
+  const where: Record<string, any> = { ...companyScope(req) };
+  if (['EMPLOYEE', 'FINANCE', 'MANAGER', 'SUPERVISOR'].includes(auth.role)) where.userId = auth.userId;
+  if (auth.role === 'SUPER_ADMIN' && req.query.company && req.query.company !== 'ALL') where.companyId = req.query.company;
+  if (req.query.status && req.query.status !== 'ALL') where.status = req.query.status;
+  if (req.query.priority && req.query.priority !== 'ALL') where.priority = req.query.priority;
+  if (req.query.search) { const re = escapeRegex(String(req.query.search)); where.$or = [{ ticketNo: re }, { ticketNoSearch: re }, { subject: re }, { subjectSearch: re }, { category: re }, { categorySearch: re }]; }
+  const [tickets, total, open, inProgress, resolved] = await Promise.all([
+    populateTicket(SupportTicket.find(where).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit)), SupportTicket.countDocuments(where),
+    SupportTicket.countDocuments({ ...companyScope(req), status: 'PENDING' }), SupportTicket.countDocuments({ ...companyScope(req), status: 'IN_PROGRESS' }), SupportTicket.countDocuments({ ...companyScope(req), status: 'RESOLVED' }),
   ]);
-
-  const [totalAll, open, inProgress, resolved] = await Promise.all([
-    SupportTicket.countDocuments(),
-    SupportTicket.countDocuments({ status: 'PENDING' }),
-    SupportTicket.countDocuments({ status: 'IN_PROGRESS' }),
-    SupportTicket.countDocuments({ status: 'RESOLVED' }),
-  ]);
-
-  res.json({
-    tickets,
-    pagination: { total, page: parseInt(page), limit, totalPages: Math.ceil(total / limit) },
-    stats: { total: totalAll, open, inProgress, resolved },
-  });
+  res.json({ tickets, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }, stats: { total, open, inProgress, resolved } });
 };
 
-export const getTicket = async (req: Request, res: Response) => {
-  const id = req.params.id as string;
-  const ticket = await SupportTicket.findById(id)
-    .populate('userId', 'id name email role')
-    .populate('companyId', 'id name');
+export const getTicket = async (req: AuthRequest, res: Response): Promise<void> => {
+  const auth = getAuth(req); const where: Record<string, any> = { _id: req.params.id, ...companyScope(req) };
+  if (['EMPLOYEE', 'FINANCE', 'MANAGER', 'SUPERVISOR'].includes(auth.role)) where.userId = auth.userId;
+  const ticket = await populateTicket(SupportTicket.findOne(where));
+  if (!ticket) { res.status(404).json({ message: 'Ticket not found' }); return; } res.json(ticket);
+};
+
+export const createTicket = async (req: AuthRequest, res: Response): Promise<void> => {
+  const auth = getAuth(req); const { category, subject, description, priority } = req.body as Record<string, string>; const companyId = auth.role === 'SUPER_ADMIN' ? req.body.companyId : auth.companyId;
+  if (!companyId || !category?.trim() || !subject?.trim() || !description?.trim()) { res.status(400).json({ message: 'Company, category, subject, and description are required' }); return; }
+  if (auth.role === 'SUPER_ADMIN' && !await Company.exists({ _id: companyId, isDeleted: { $ne: true } })) { res.status(404).json({ message: 'Company not found' }); return; }
+  const ticket = await SupportTicket.create({ ticketNo: await nextSupportTicketNumber(), userId: auth.userId, companyId, category: category.trim(), subject: subject.trim(), description: description.trim(), priority: (priority ?? 'MEDIUM') as any });
+  logActivity(req, `Created support ticket ${ticket.ticketNo}: ${ticket.subject}`, 'Support'); res.status(201).json(await populateTicket(SupportTicket.findById(ticket._id)));
+};
+
+export const updateTicket = async (req: AuthRequest, res: Response): Promise<void> => {
+  const auth = getAuth(req); const existing = await SupportTicket.findOne({ _id: req.params.id, ...companyScope(req) });
+  if (!existing || !managementRoles.has(auth.role)) { res.status(404).json({ message: 'Ticket not found or not permitted' }); return; }
+  const { status, priority, assignedTo } = req.body as { status?: string; priority?: string; assignedTo?: string }; const update: Record<string, unknown> = {};
+  if (status) { update.status = status; if (status === 'RESOLVED') update.resolvedAt = new Date(); if (status === 'CLOSED') update.closedAt = new Date(); } if (priority) update.priority = priority; if (assignedTo !== undefined) update.assignedTo = assignedTo || null;
+  const ticket = await populateTicket(SupportTicket.findOneAndUpdate({ _id: existing._id }, update, { returnDocument: 'after' })); logActivity(req, `Updated support ticket ${existing.ticketNo}`, 'Support'); res.json(ticket);
+};
+
+export const getComments = async (req: AuthRequest, res: Response): Promise<void> => {
+  const auth = getAuth(req); const ticket = await SupportTicket.findOne({ _id: req.params.id, ...companyScope(req), ...(['EMPLOYEE', 'FINANCE', 'MANAGER', 'SUPERVISOR'].includes(auth.role) ? { userId: auth.userId } : {}) }).select('_id');
   if (!ticket) { res.status(404).json({ message: 'Ticket not found' }); return; }
-  res.json(ticket);
+  const comments = await SupportComment.find({ ticketId: ticket._id, ...(auth.role === 'SUPER_ADMIN' ? {} : { isInternal: false }) }).populate('authorId', 'id name email role').sort({ createdAt: 1 }); res.json({ comments });
 };
 
-export const createTicket = async (req: Request, res: Response) => {
-  const { category, subject, description, priority, companyId } = req.body as {
-    category: string; subject: string; description: string;
-    priority?: string; companyId?: string;
-  };
-
-  const userId = getUserId(req);
-  const today = new Date();
-  const datePart = `${String(today.getDate()).padStart(2, '0')}${String(today.getMonth() + 1).padStart(2, '0')}${today.getFullYear()}`;
-  const prefix = `TKT-${datePart}-`;
-  const countToday = await SupportTicket.countDocuments({ ticketNo: { $regex: `^${prefix}` } });
-  const ticketNo = `${prefix}${String(countToday + 1).padStart(4, '0')}`;
-
-  const ticket = await SupportTicket.create({
-    ticketNo,
-    userId,
-    companyId: companyId || null,
-    category,
-    subject,
-    description,
-    priority: (priority ?? 'MEDIUM') as any,
-  });
-
-  const populated = await SupportTicket.findById((ticket as any)._id)
-    .populate('userId', 'id name email role')
-    .populate('companyId', 'id name');
-
-  logActivity(req, `Created support ticket ${ticketNo}: ${subject}`, 'Support');
-  res.status(201).json(populated);
+export const addComment = async (req: AuthRequest, res: Response): Promise<void> => {
+  const auth = getAuth(req); const ticket = await SupportTicket.findOne({ _id: req.params.id, ...companyScope(req), ...(['EMPLOYEE', 'FINANCE', 'MANAGER', 'SUPERVISOR'].includes(auth.role) ? { userId: auth.userId } : {}) }); const body = String(req.body.body ?? '').trim();
+  if (!ticket) { res.status(404).json({ message: 'Ticket not found' }); return; } if (!body) { res.status(400).json({ message: 'Comment is required' }); return; }
+  const comment = await SupportComment.create({ ticketId: ticket._id, authorId: auth.userId, body, isInternal: Boolean(req.body.isInternal) && auth.role === 'SUPER_ADMIN' }); logActivity(req, `Commented on support ticket ${ticket.ticketNo}`, 'Support'); res.status(201).json(await SupportComment.findById(comment._id).populate('authorId', 'id name email role'));
 };
 
-export const updateTicket = async (req: Request, res: Response) => {
-  const id = req.params.id as string;
-  const { status, priority } = req.body as { status?: string; priority?: string };
-
-  const update: Record<string, unknown> = {};
-  if (status) update.status = status;
-  if (priority) update.priority = priority;
-
-  const ticket = await SupportTicket.findByIdAndUpdate(id, update, { new: true })
-    .populate('userId', 'id name email role')
-    .populate('companyId', 'id name');
-
-  if (ticket) {
-    const changes = [status && `status → ${status}`, priority && `priority → ${priority}`].filter(Boolean).join(', ');
-    logActivity(req, `Updated ticket ${(ticket as any).ticketNo}: ${changes}`, 'Support');
-  }
-  res.json(ticket);
+export const getCompaniesForSupport = async (_req: AuthRequest, res: Response): Promise<void> => {
+  const req = _req; const filter: Record<string, any> = { isDeleted: { $ne: true } }; if (req.user?.role !== 'SUPER_ADMIN') filter._id = req.user?.companyId;
+  const companies = await Company.find(filter).select('id name companyCode').sort({ name: 1 }).lean(); res.json(companies.map((c: any) => ({ id: c._id.toString(), name: c.name, companyCode: getCompanyReference(c._id, c.companyCode) })));
 };
 
-export const getCompaniesForSupport = async (_req: Request, res: Response) => {
-  const companies = await Company.find().select('id name').sort({ name: 1 });
-  res.json(companies);
+export const getSupportAgents = async (req: AuthRequest, res: Response): Promise<void> => {
+  const users = await User.find({ role: { $in: ['SUPER_ADMIN', 'HR', 'COMPANY_ADMIN'] }, ...(req.user?.role === 'SUPER_ADMIN' ? {} : { companyId: req.user?.companyId }) }).select('id name email role').sort({ name: 1 }).lean(); res.json({ users });
 };

@@ -29,7 +29,7 @@ export default function CAWorkforcePage() {
   const [credentials, setCredentials] = useState<{ name: string; email: string; password: string } | null>(null);
   const [copied,     setCopied]     = useState(false);
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const empParams: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) empParams.search = debouncedSearch;

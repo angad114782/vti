@@ -20,6 +20,7 @@ export const logActivity = (
     status,
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
+    requestId: req.requestId,
   }).catch((err: unknown) => {
     console.error('[ActivityLog] Failed to write log:', err instanceof Error ? err.message : err);
   });

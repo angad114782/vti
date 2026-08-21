@@ -8,7 +8,7 @@ interface User {
   email: string;
   role: string;
   avatar?: string;
-  company?: { id: string; name: string } | null;
+  company?: { id: string; name: string; companyCode: string } | null;
 }
 
 interface AuthState {

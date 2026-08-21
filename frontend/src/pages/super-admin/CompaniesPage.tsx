@@ -6,9 +6,10 @@ import { extractError } from '../../utils/errorUtils';
 import { getPlanBadge } from '../../utils/planColors';
 import { useSaCompanies, useSaPlans } from '../../hooks/queries/useSaQueries';
 import { useDeleteCompany } from '../../hooks/mutations/useSaMutations';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import {
   Building2, TrendingUp, Clock, AlertTriangle, Search,
-  Eye, Pencil, Trash2, X, Loader2, ChevronLeft, ChevronRight, Plus,
+  Pencil, Trash2, X, Loader2, ChevronLeft, ChevronRight, Plus,
   BarChart3,
   FileText,
   Shield,
@@ -26,6 +27,7 @@ const quickActions = [
 const statusMeta: Record<string, { label: string; bg: string; color: string }> = {
   ACTIVE:    { label: 'Active',    bg: '#dcfce7', color: '#15803d' },
   TRIAL:     { label: 'Trial',     bg: '#fef9c3', color: '#a16207' },
+  GRACE_PERIOD: { label: 'Grace Period', bg: '#ffedd5', color: '#c2410c' },
   EXPIRED:   { label: 'Expired',   bg: '#fee2e2', color: '#b91c1c' },
   SUSPENDED: { label: 'Suspended', bg: '#f1f5f9', color: '#475569' },
 };
@@ -36,8 +38,8 @@ const avatarColors = [
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
 ];
 
-const getAvatarColor = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length];
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAvatarColor = (name?: string) => avatarColors[(name ?? 'C').charCodeAt(0) % avatarColors.length];
+const initials = (name?: string) => (name ?? 'Company').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
 const isExpiringSoon = (dateStr?: string) => {
   if (!dateStr) return false;
@@ -70,9 +72,9 @@ function CompanyModal({ company, plans, onClose, onSave }: ModalProps & { plans:
     address: company?.address ?? '',
     plan: company?.plan ?? (plans[0]?.type ?? ''),
     status: company?.status ?? 'TRIAL',
-    maxUsers: company?.maxUsers ?? 100,
     planExpiry: company?.planExpiry ? company.planExpiry.slice(0, 10) : '',
     ...(!isEdit ? { adminName: '', adminEmail: '', adminPassword: '' } : {}),
+    ...(!isEdit ? { paymentStatus: 'PENDING' as const, paymentReference: '', paymentNotes: '' } : {}),
   });
 
   const set = (k: keyof CreateCompanyData, v: string | number) =>
@@ -219,17 +221,18 @@ function CompanyModal({ company, plans, onClose, onSave }: ModalProps & { plans:
             </div>
           </div>
 
-          {/* Max Users + Expiry */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
-            <div>
-              <label style={labelStyle}>Max Users</label>
-              <input type="number" style={inputStyle} value={form.maxUsers} onChange={(e) => set('maxUsers', parseInt(e.target.value))} min={1} />
-            </div>
-            <div>
-              <label style={labelStyle}>Plan Expiry</label>
-              <input type="date" style={inputStyle} value={form.planExpiry} onChange={(e) => set('planExpiry', e.target.value)} />
-            </div>
+          {/* Plan expiry */}
+          <div>
+            <label style={labelStyle}>Plan Expiry</label>
+            <input type="date" style={inputStyle} value={form.planExpiry} onChange={(e) => set('planExpiry', e.target.value)} />
           </div>
+
+          {!isEdit && (
+            <div style={{ padding: '12px', border: '1px solid #e2e8f0', borderRadius: '8px', display: 'grid', gap: '10px' }}>
+              <div><p style={{ fontSize: '12px', fontWeight: 700, color: '#374151' }}>Offline payment record</p><p style={{ fontSize: '11px', color: '#64748b' }}>Optional physical/cash/bank-transfer payment status. It does not control access.</p></div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}><select style={inputStyle} value={form.paymentStatus ?? 'PENDING'} onChange={(e) => set('paymentStatus', e.target.value)}><option value="PENDING">Payment pending</option><option value="PAID">Paid offline</option></select><input style={inputStyle} placeholder="Receipt / reference" value={form.paymentReference ?? ''} onChange={(e) => set('paymentReference', e.target.value)} /></div>
+            </div>
+          )}
 
           {/* Footer */}
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', paddingTop: '4px' }}>
@@ -278,7 +281,8 @@ function ViewModal({ company, plans, onClose, onEdit }: { company: Company; plan
               {initials(company.name)}
             </div>
             <div>
-              <h2 style={{ color: 'white', fontSize: '16px', fontWeight: 700 }}>{company.name}</h2>
+          <h2 style={{ color: 'white', fontSize: '16px', fontWeight: 700 }}>{company.name}</h2>
+          <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '11px', marginTop: '2px' }}>{company.companyCode}</p>
               <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '12px' }}>{company.industry ?? '—'}</p>
             </div>
           </div>
@@ -371,9 +375,10 @@ export default function CompaniesPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<Company | null>(null);
   const [page,        setPage]        = useState(1);
   const [generatedAdminCreds, setGeneratedAdminCreds] = useState<{ email: string; password: string } | null>(null);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const params: Record<string, string> = { page: String(page), limit: '8' };
-  if (search) params.search = search;
+  if (debouncedSearch.trim().length >= 2) params.search = debouncedSearch.trim();
   if (planFilter !== 'ALL') params.plan = planFilter;
   if (statusFilter !== 'ALL') params.status = statusFilter;
 
@@ -467,6 +472,7 @@ export default function CompaniesPage() {
             <option value="ALL">All Status</option>
             <option value="ACTIVE">Active</option>
             <option value="TRIAL">Trial</option>
+            <option value="GRACE_PERIOD">Grace Period</option>
             <option value="EXPIRED">Expired</option>
             <option value="SUSPENDED">Suspended</option>
           </select>
@@ -509,7 +515,7 @@ export default function CompaniesPage() {
                           </div>
                           <div>
                             <p style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a', whiteSpace: 'nowrap' }}>{c.name}</p>
-                            <p style={{ fontSize: '11px', color: '#94a3b8' }}>{c.industry ?? '—'}</p>
+                            <p style={{ fontSize: '11px', color: '#64748b' }}>{c.companyCode} · {c.industry ?? '—'}</p>
                           </div>
                         </div>
                       </td>

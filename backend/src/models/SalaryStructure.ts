@@ -6,6 +6,12 @@ const salaryStructureSchema = new Schema({
   role: { type: String, required: true },
   employmentType: { type: String, default: 'Permanent' },
   annualCtc: { type: Number, required: true },
+  basicAnnual: { type: Number, min: 0 },
+  allowancesAnnual: { type: Number, min: 0, default: 0 },
+  deductionsAnnual: { type: Number, min: 0, default: 0 },
+  components: { type: [{ name: String, kind: { type: String, enum: ['EARNING', 'DEDUCTION'] }, annualAmount: { type: Number, min: 0 } }], default: [] },
+  effectiveFrom: { type: Date },
+  effectiveTo: { type: Date },
   lastRevised: { type: Date, required: true },
 }, { timestamps: true });
 

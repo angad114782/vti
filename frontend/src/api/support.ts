@@ -12,7 +12,7 @@ export interface SupportTicket {
   createdAt: string;
   updatedAt: string;
   user?: { id: string; name: string; email: string; role: string };
-  company?: { id: string; name: string };
+  company?: { id: string; name: string; companyCode?: string };
 }
 
 export interface TicketsResponse {
@@ -33,6 +33,9 @@ export const supportApi = {
 
   update: (id: string, data: { status?: string; priority?: string }) =>
     api.patch<SupportTicket>(`/support/${id}`, data),
+
+  getComments: (id: string) => api.get<{ comments: Array<{ id: string; body: string; isInternal: boolean; createdAt: string; authorId?: { name: string; role: string } }> }>(`/support/${id}/comments`),
+  addComment: (id: string, body: string) => api.post(`/support/${id}/comments`, { body }),
 
   getCompanies: () =>
     api.get<{ id: string; name: string }[]>('/support/companies'),

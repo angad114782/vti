@@ -1,0 +1,10 @@
+import { Router } from 'express';
+import { checkoutStatus, createCheckout, publicPlans, resendVerificationEmail, verifyEmail } from '../controllers/onboarding.controller';
+import { validateBody, checkoutSchema, verifyEmailSchema } from '../utils/validate';
+const router = Router();
+router.get('/plans', publicPlans);
+router.post('/checkout', validateBody(checkoutSchema), createCheckout);
+router.get('/checkout/:id', checkoutStatus);
+router.post('/checkout/:id/resend-verification', resendVerificationEmail);
+router.post('/verify-email', validateBody(verifyEmailSchema), verifyEmail);
+export default router;

@@ -7,9 +7,12 @@ import compression from 'compression';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import mongoose from 'mongoose';
-import path from 'path';
 import connectDB from './utils/db';
 import { errorHandler } from './core/errorHandler';
+import { authenticate } from './middleware/auth.middleware';
+import { downloadFile } from './controllers/file.controller';
+import { getCacheStats } from './utils/cache';
+import { getMetrics, recordRequest } from './utils/metrics';
 
 import authRoutes from './routes/auth.routes';
 import companiesRoutes from './routes/companies.routes';
@@ -21,6 +24,13 @@ import hrRoutes from './routes/hr.routes';
 import financeRoutes from './routes/finance.routes';
 import employeeRoutes from './routes/employee.routes';
 import companyAdminRoutes from './routes/company-admin.routes';
+import notificationsRoutes from './routes/notifications.routes';
+import searchRoutes from './routes/search.routes';
+import settingsRoutes from './routes/settings.routes';
+import paymentsRoutes from './routes/payments.routes';
+import onboardingRoutes from './routes/onboarding.routes';
+import { razorpayWebhook } from './controllers/onboarding.controller';
+import { startWorkflowWorker } from './workers/workflow.worker';
 
 // ── Env validation ──────────────────────────────────────────────
 const required = ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET', 'MONGODB_URI'];
@@ -45,8 +55,16 @@ const PORT = process.env.PORT || 5001;
 
 // Request ID — attached before all routes so it's available in error handler and logs
 app.use((req: Request, _res: Response, next: NextFunction) => {
-  req.requestId = `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  const incomingRequestId = req.get('X-Request-ID')?.trim();
+  req.requestId = incomingRequestId && /^[A-Za-z0-9._:-]{1,128}$/.test(incomingRequestId)
+    ? incomingRequestId
+    : `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   _res.setHeader('X-Request-ID', req.requestId);
+  const startedAt = process.hrtime.bigint();
+  _res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+    recordRequest(req.method, req.path, _res.statusCode, durationMs);
+  });
   next();
 });
 
@@ -68,8 +86,11 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'Idempotency-Key'],
 }));
+
+// Razorpay signs the exact raw bytes, so this route must precede express.json().
+app.post('/api/onboarding/razorpay/webhook', express.raw({ type: 'application/json' }), razorpayWebhook);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(cookieParser());
@@ -91,7 +112,8 @@ const authLimiter = rateLimit({
 });
 app.use('/api/auth/login',   authLimiter);
 app.use('/api/auth/refresh', authLimiter);
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+// Uploads are never public; the file controller enforces tenant and role access.
+app.use('/api/files', authenticate, downloadFile);
 
 // ── Routes ──────────────────────────────────────────────────────
 app.use('/api/auth',          authRoutes);
@@ -104,6 +126,11 @@ app.use('/api/hr',            hrRoutes);
 app.use('/api/finance',       financeRoutes);
 app.use('/api/employee',      employeeRoutes);
 app.use('/api/company-admin', companyAdminRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/search',        searchRoutes);
+app.use('/api/settings',      settingsRoutes);
+app.use('/api/payments',      paymentsRoutes);
+app.use('/api/onboarding',    onboardingRoutes);
 
 // Liveness — is the process alive?
 app.get('/api/health/live', (_req, res) => {
@@ -116,6 +143,17 @@ app.get('/api/health/ready', (_req, res) => {
   res.status(dbOk ? 200 : 503).json({
     status: dbOk ? 'ok' : 'degraded',
     db: dbOk ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/api/health/metrics', (_req, res) => {
+  const dbOk = mongoose.connection.readyState === 1;
+  res.json({
+    uptimeSeconds: Math.round(process.uptime()),
+    db: dbOk ? 'connected' : 'disconnected',
+    cache: getCacheStats(),
+    metrics: getMetrics(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -136,6 +174,7 @@ app.use(errorHandler as (err: unknown, req: Request, res: Response, next: NextFu
 
 // ── Start ────────────────────────────────────────────────────────
 connectDB().then(() => {
+  const stopWorkflowWorker = startWorkflowWorker();
   const server = app.listen(PORT, () => {
     const mongoHost = (process.env.MONGODB_URI || '').replace(/\/\/.*@/, '//<redacted>@');
     console.log(`[${isProd ? 'PROD' : 'DEV'}] Server running on http://localhost:${PORT}`);
@@ -147,6 +186,7 @@ connectDB().then(() => {
   // Graceful shutdown
   const shutdown = (signal: string) => {
     console.log(`${signal} received – shutting down gracefully`);
+    stopWorkflowWorker();
     server.close(() => {
       mongoose.connection.close().then(() => {
         console.log('MongoDB connection closed');
