@@ -14,6 +14,8 @@ const userSchema = new Schema({
   },
   avatar: String,
   isActive: { type: Boolean, default: true },
+  accountStatus: { type: String, enum: ['INVITED', 'ACTIVE', 'SUSPENDED'], default: 'ACTIVE' },
+  lastLoginAt: Date,
   sessionVersion: { type: Number, default: 0, min: 0 },
   failedLoginAttempts: { type: Number, default: 0, min: 0 },
   loginLockedUntil: { type: Date },

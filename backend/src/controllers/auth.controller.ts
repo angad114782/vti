@@ -49,7 +49,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
       res.status(401).json({ message: 'Invalid credentials' });
       return;
     }
-    await User.updateOne({ _id: user._id }, { $set: { failedLoginAttempts: 0 }, $unset: { loginLockedUntil: 1 } });
+    await User.updateOne({ _id: user._id }, { $set: { failedLoginAttempts: 0, lastLoginAt: new Date(), accountStatus: 'ACTIVE' }, $unset: { loginLockedUntil: 1 } });
 
     const userId = user._id.toString();
     const populatedCompany = user.get('companyId') as { _id: { toString(): string }; name: string; companyCode?: string } | null;

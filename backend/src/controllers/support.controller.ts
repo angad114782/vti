@@ -9,6 +9,9 @@ import { getAuth } from '../utils/authContext';
 import { getCompanyReference } from '../utils/companyReference';
 import { logActivity } from '../utils/activity';
 import { nextSupportTicketNumber } from '../utils/ticketNumber';
+import { emitSupportComment, emitSupportTicketUpdate } from '../realtime/supportSocket';
+import { emitUserNotification } from '../realtime/supportSocket';
+import Notification from '../models/Notification';
 
 const managementRoles = new Set(['SUPER_ADMIN', 'COMPANY_ADMIN', 'HR']);
 const companyScope = (req: AuthRequest) => req.user?.role === 'SUPER_ADMIN' ? {} : { companyId: req.user?.companyId };
@@ -49,7 +52,7 @@ export const updateTicket = async (req: AuthRequest, res: Response): Promise<voi
   if (!existing || !managementRoles.has(auth.role)) { res.status(404).json({ message: 'Ticket not found or not permitted' }); return; }
   const { status, priority, assignedTo } = req.body as { status?: string; priority?: string; assignedTo?: string }; const update: Record<string, unknown> = {};
   if (status) { update.status = status; if (status === 'RESOLVED') update.resolvedAt = new Date(); if (status === 'CLOSED') update.closedAt = new Date(); } if (priority) update.priority = priority; if (assignedTo !== undefined) update.assignedTo = assignedTo || null;
-  const ticket = await populateTicket(SupportTicket.findOneAndUpdate({ _id: existing._id }, update, { returnDocument: 'after' })); logActivity(req, `Updated support ticket ${existing.ticketNo}`, 'Support'); res.json(ticket);
+  const ticket = await populateTicket(SupportTicket.findOneAndUpdate({ _id: existing._id }, update, { returnDocument: 'after' })); logActivity(req, `Updated support ticket ${existing.ticketNo}`, 'Support'); emitSupportTicketUpdate(existing._id.toString(), ticket); res.json(ticket);
 };
 
 export const getComments = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -61,7 +64,13 @@ export const getComments = async (req: AuthRequest, res: Response): Promise<void
 export const addComment = async (req: AuthRequest, res: Response): Promise<void> => {
   const auth = getAuth(req); const ticket = await SupportTicket.findOne({ _id: req.params.id, ...companyScope(req), ...(['EMPLOYEE', 'FINANCE', 'MANAGER', 'SUPERVISOR'].includes(auth.role) ? { userId: auth.userId } : {}) }); const body = String(req.body.body ?? '').trim();
   if (!ticket) { res.status(404).json({ message: 'Ticket not found' }); return; } if (!body) { res.status(400).json({ message: 'Comment is required' }); return; }
-  const comment = await SupportComment.create({ ticketId: ticket._id, authorId: auth.userId, body, isInternal: Boolean(req.body.isInternal) && auth.role === 'SUPER_ADMIN' }); logActivity(req, `Commented on support ticket ${ticket.ticketNo}`, 'Support'); res.status(201).json(await SupportComment.findById(comment._id).populate('authorId', 'id name email role'));
+  const comment = await SupportComment.create({ ticketId: ticket._id, authorId: auth.userId, body, isInternal: Boolean(req.body.isInternal) && auth.role === 'SUPER_ADMIN' }); logActivity(req, `Commented on support ticket ${ticket.ticketNo}`, 'Support'); const populated: any = await SupportComment.findById(comment._id).populate('authorId', 'id name email role'); const commentPayload = { ...(populated?.toJSON?.() ?? populated?.toObject?.() ?? populated), id: populated?._id?.toString() ?? populated?.id }; emitSupportComment(ticket._id.toString(), commentPayload);
+  const recipientIds = auth.role === 'SUPER_ADMIN' ? [String(ticket.userId)] : (await User.find({ role: 'SUPER_ADMIN', isActive: true }).select('_id').lean()).map((user) => String(user._id));
+  await Promise.all(recipientIds.filter((id) => id !== auth.userId).map(async (userId) => {
+    const notification: any = await Notification.create({ userId, companyId: ticket.companyId, type: 'SUPPORT_MESSAGE', title: `New reply on ${ticket.ticketNo}`, message: `${auth.role === 'SUPER_ADMIN' ? 'Support' : 'Customer'}: ${body.slice(0, 120)}`, entityType: 'SupportTicket', entityId: ticket._id, dedupeKey: `support:${comment._id}:${userId}` });
+    emitUserNotification(userId, { ...(notification.toObject?.() ?? notification), id: notification._id.toString() }); return notification;
+  }));
+  res.status(201).json(commentPayload);
 };
 
 export const getCompaniesForSupport = async (_req: AuthRequest, res: Response): Promise<void> => {

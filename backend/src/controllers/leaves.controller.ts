@@ -74,7 +74,7 @@ export const updateLeaveStatus = async (req: Request, res: Response) => {
   }
   if (status === 'Cancelled') {
     const employee = await Employee.findOne({ _id: existing.employeeId, companyId }).select('userId').lean();
-    if (!employee || employee.userId.toString() !== getUserId(req)) {
+    if (!employee?.userId || employee.userId.toString() !== getUserId(req)) {
       res.status(403).json({ message: 'Only the requesting employee can cancel this leave' });
       return;
     }

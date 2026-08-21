@@ -7,7 +7,7 @@ export interface Employee {
   shiftType: string | null; shiftTiming: string | null; joiningDate: string | null;
   annualCtc: number | null; employmentType: string; status: string;
   bankName: string | null; branchName: string | null; accountHolder: string | null;
-  version?: number; user: { id: string; name: string; email: string; role: string };
+  version?: number; user: { id: string | null; name: string; email: string; role: string | null; accountStatus?: 'NOT_CREATED' | 'INVITED' | 'ACTIVE' | 'SUSPENDED'; lastLoginAt?: string | null };
 }
 
 export interface LeaveRequest {
@@ -83,7 +83,7 @@ export const hrApi = {
   // Employees
   getEmployees: (p?: Record<string, string>) => api.get<{ employees: Employee[]; pagination: Pagination; stats: { total: number; active: number; inactive: number; departments: number } }>('/hr/employees', { params: p }),
   getEmployee:  (id: string)                 => api.get<Employee>(`/hr/employees/${id}`),
-  createEmployee: (data: Record<string, string>, idempotencyKey?: string) => api.post<Employee & { generatedPassword: string }>('/hr/employees', data, idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined),
+  createEmployee: (data: Record<string, unknown>, idempotencyKey?: string) => api.post<Employee & { generatedPassword?: string }>('/hr/employees', data, idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined),
   updateEmployee: (id: string, data: Record<string, string>) => api.patch<Employee>(`/hr/employees/${id}`, data),
   employeeAction: (id: string, data: { action: string; version?: number }) => api.post<Employee>(`/hr/employees/${id}/actions`, data),
   getDepartments: ()                         => api.get<{ name: string; count: number }[]>('/hr/employees/departments'),

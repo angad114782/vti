@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -31,6 +32,7 @@ import paymentsRoutes from './routes/payments.routes';
 import onboardingRoutes from './routes/onboarding.routes';
 import { razorpayWebhook } from './controllers/onboarding.controller';
 import { startWorkflowWorker } from './workers/workflow.worker';
+import { startSupportSocket } from './realtime/supportSocket';
 
 // ── Env validation ──────────────────────────────────────────────
 const required = ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET', 'MONGODB_URI'];
@@ -175,7 +177,9 @@ app.use(errorHandler as (err: unknown, req: Request, res: Response, next: NextFu
 // ── Start ────────────────────────────────────────────────────────
 connectDB().then(() => {
   const stopWorkflowWorker = startWorkflowWorker();
-  const server = app.listen(PORT, () => {
+  const server = createServer(app);
+  startSupportSocket(server, allowedOrigin);
+  server.listen(PORT, () => {
     const mongoHost = (process.env.MONGODB_URI || '').replace(/\/\/.*@/, '//<redacted>@');
     console.log(`[${isProd ? 'PROD' : 'DEV'}] Server running on http://localhost:${PORT}`);
     console.log(`[BOOT] CLIENT_URL (CORS origin) = ${process.env.CLIENT_URL || '(not set, defaulting to http://localhost:5173)'}`);

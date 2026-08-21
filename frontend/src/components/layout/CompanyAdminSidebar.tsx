@@ -91,9 +91,14 @@ export default function CompanyAdminSidebar() {
       </div>
 
       <nav style={{ flex: 1, padding: '10px 8px', display: 'flex', flexDirection: 'column', gap: '2px', overflowY: 'auto' }}>
-        {/* Dashboard, Attendance, Workforce */}
+        {/* Company overview */}
+        <p style={{ margin: '8px 12px 3px', fontSize: '9px', fontWeight: 800, letterSpacing: '0.8px', color: 'rgba(255,255,255,0.38)' }}>COMPANY</p>
         {NAV_TOP.map(({ to, label, Icon }) => (
-          <NavLink key={to} to={toWithContext(to)} style={({ isActive }) => linkStyle(isActive)}>
+          <div key={to}>
+          {label === 'Workforce' && <p style={{ margin: '14px 12px 3px', fontSize: '9px', fontWeight: 800, letterSpacing: '0.8px', color: 'rgba(255,255,255,0.38)' }}>PEOPLE</p>}
+          {label === 'Departments' && <p style={{ margin: '14px 12px 3px', fontSize: '9px', fontWeight: 800, letterSpacing: '0.8px', color: 'rgba(255,255,255,0.38)' }}>ORGANIZATION</p>}
+          {label === 'Users' && <p style={{ margin: '14px 12px 3px', fontSize: '9px', fontWeight: 800, letterSpacing: '0.8px', color: 'rgba(255,255,255,0.38)' }}>ACCESS & SECURITY</p>}
+          <NavLink to={toWithContext(to)} style={({ isActive }) => linkStyle(isActive)}>
             {({ isActive }) => (
               <>
                 {isActive && <div style={{ position: 'absolute', left: 0, width: '3px', height: '28px', backgroundColor: '#4ade80', borderRadius: '0 3px 3px 0' }} />}
@@ -101,7 +106,7 @@ export default function CompanyAdminSidebar() {
                 <span>{label}</span>
               </>
             )}
-          </NavLink>
+          </NavLink></div>
         ))}
 
         {/* Payroll expandable */}

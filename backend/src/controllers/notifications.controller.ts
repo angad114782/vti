@@ -1,20 +1,20 @@
 import { Response } from 'express';
 import Notification from '../models/Notification';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { requireCompanyId } from '../utils/scope';
 
 export const getNotifications = async (req: AuthRequest, res: Response): Promise<void> => {
-  const companyId = requireCompanyId(req);
+  const companyId = req.user?.role === 'SUPER_ADMIN' ? undefined : req.user?.companyId;
   const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
-  const notifications = await Notification.find({ userId: req.user!.userId, companyId })
+  const where: Record<string, unknown> = { userId: req.user!.userId, ...(companyId ? { companyId } : {}) };
+  const notifications = await Notification.find({ ...where, readAt: { $exists: false } })
     .sort({ createdAt: -1 }).limit(limit).lean();
-  res.json({ notifications, unread: await Notification.countDocuments({ userId: req.user!.userId, companyId, readAt: { $exists: false } }) });
+  res.json({ notifications: notifications.map((notification: any) => ({ ...notification, id: notification._id.toString() })), unread: await Notification.countDocuments({ ...where, readAt: { $exists: false } }) });
 };
 
 export const markNotificationRead = async (req: AuthRequest, res: Response): Promise<void> => {
-  const companyId = requireCompanyId(req);
+  const companyId = req.user?.role === 'SUPER_ADMIN' ? undefined : req.user?.companyId;
   const notification = await Notification.findOneAndUpdate(
-    { _id: req.params.id, userId: req.user!.userId, companyId },
+    { _id: req.params.id, userId: req.user!.userId, ...(companyId ? { companyId } : {}) },
     { $set: { readAt: new Date() } },
     { returnDocument: 'after' },
   );

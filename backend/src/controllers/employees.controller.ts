@@ -15,6 +15,17 @@ import { withTransaction } from '../utils/transaction';
 import EmployeeHistory from '../models/EmployeeHistory';
 import IdempotencyKey from '../models/IdempotencyKey';
 import { resolveEmployeeTransition } from '../utils/workflow';
+import Department from '../models/Department';
+
+const employeeDto = (employee: any) => {
+  const account = employee.userId && typeof employee.userId === 'object' ? employee.userId : null;
+  return {
+    ...employee,
+    id: employee.id ?? employee._id?.toString(),
+    user: account ? { id: account.id ?? account._id?.toString(), name: account.name, email: account.email, role: account.role, isActive: account.isActive, accountStatus: account.accountStatus ?? (account.isActive ? 'ACTIVE' : 'SUSPENDED'), lastLoginAt: account.lastLoginAt ?? null } :
+      { id: null, name: employee.name, email: employee.email ?? '', role: null, isActive: false, accountStatus: 'NOT_CREATED', lastLoginAt: null },
+  };
+};
 
 export const getEmployees = async (req: Request, res: Response) => {
   const companyId = getCompanyId(req);
@@ -32,9 +43,10 @@ export const getEmployees = async (req: Request, res: Response) => {
 
     if (search) {
       const re = escapeRegex(search);
-      const matchingUsers = await User.find({ $or: [{ nameSearch: re }, { emailSearch: re }] }).select('_id').lean();
+      const matchingUsers = await User.find({ companyId, $or: [{ nameSearch: re }, { emailSearch: re }] }).select('_id').lean();
       where.$or = [
         { userId: { $in: matchingUsers.map((u) => u._id) } },
+        { name: re }, { email: re },
         { employeeIdSearch: re },
         { designationSearch: re },
         { departmentSearch: re },
@@ -44,7 +56,7 @@ export const getEmployees = async (req: Request, res: Response) => {
     const [employees, filteredTotal, total, active] = await Promise.all([
       Employee.find(where)
         .select(listProjection)
-        .populate('userId', 'id name email role')
+        .populate('userId', 'id name email role isActive accountStatus lastLoginAt')
         .sort({ createdAt: 1, _id: 1 })
         .skip(skip)
         .limit(limit)
@@ -60,7 +72,7 @@ export const getEmployees = async (req: Request, res: Response) => {
     ]) : [];
 
     return {
-      employees,
+      employees: employees.map(employeeDto),
       pagination: paginationMeta(filteredTotal, page, limit),
       stats: { total, active, inactive: total - active, departments: deptAgg.length },
     };
@@ -75,17 +87,21 @@ export const getEmployee = async (req: Request, res: Response) => {
   const companyId = requireCompanyId(req);
   const privileged = ['HR', 'COMPANY_ADMIN', 'SUPER_ADMIN', 'FINANCE'].includes(getRole(req));
   const projection = privileged ? undefined : '-accountHolder -bankName -branchName -annualCtc';
-  const emp = await Employee.findOne({ _id: id, companyId }).select(projection ?? '').populate('userId', 'name email avatar role');
+  const emp = await Employee.findOne({ _id: id, companyId }).select(projection ?? '').populate('userId', 'name email avatar role isActive accountStatus lastLoginAt');
   if (!emp) { res.status(404).json({ message: 'Employee not found' }); return; }
-  res.json(emp);
+  res.json(employeeDto(emp.toObject()));
 };
 
 export const createEmployee = async (req: Request, res: Response) => {
   const companyId = requireCompanyId(req);
-  const { name, department, designation, shiftType, shiftTiming, joiningDate, annualCtc, employmentType, bankName, branchName, accountHolder, managerId } = req.body as Record<string, string>;
+  const { name, departmentId, designation, shiftType, shiftTiming, joiningDate, annualCtc, employmentType, bankName, branchName, accountHolder, managerId, role } = req.body as Record<string, string>;
+  const createAccess = (req.body as any).createAccess !== false;
   const email = String((req.body as Record<string, unknown>).email ?? '').trim().toLowerCase();
 
-  if (!name || !email) { res.status(400).json({ message: 'Name and email required' }); return; }
+  if (!name || !departmentId || (createAccess && !email)) { res.status(400).json({ message: 'Name, department, and an email for access are required' }); return; }
+  const departmentRecord = await Department.findOne({ _id: departmentId, companyId, isActive: true }).lean();
+  if (!departmentRecord) { res.status(400).json({ message: 'Select an active department from this company' }); return; }
+  const department = departmentRecord.name;
   if (managerId) {
     const manager = await Employee.findOne({ _id: managerId, companyId }).select('_id').lean();
     if (!manager) { res.status(400).json({ message: 'Manager must belong to this company' }); return; }
@@ -130,7 +146,7 @@ export const createEmployee = async (req: Request, res: Response) => {
     }
   }
 
-  const existing = await User.findOne({ email });
+  const existing = email ? await User.findOne({ email }) : null;
   if (existing) {
     if (idempotencyRecord) await IdempotencyKey.deleteOne({ _id: idempotencyRecord._id });
     res.status(409).json({ message: 'A user with this email already exists' });
@@ -142,13 +158,13 @@ export const createEmployee = async (req: Request, res: Response) => {
     { $inc: { value: 1 }, $setOnInsert: { companyId, key: 'employee' } },
     { upsert: true, returnDocument: 'after' }
   ).then((sequence) => `EMP${String(sequence.value).padStart(3, '0')}`);
-  const generatedPassword = crypto.randomBytes(12).toString('base64url');
-  const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+  const generatedPassword = createAccess ? crypto.randomBytes(12).toString('base64url') : '';
+  const hashedPassword = createAccess ? await bcrypt.hash(generatedPassword, 10) : '';
 
   const { user, emp } = await withTransaction(async (session) => {
-    const [createdUsers] = await User.create([{ email, password: hashedPassword, name, role: 'EMPLOYEE', companyId }], { session });
+    const createdUsers: any = createAccess ? (await User.create([{ email, password: hashedPassword, name, role: (role || 'EMPLOYEE') as any, companyId, accountStatus: 'INVITED' }], { session }))[0] : null;
     const [createdEmployees] = await Employee.create([{
-      employeeId, userId: createdUsers._id, companyId, department, designation, shiftType, shiftTiming,
+      employeeId, userId: createdUsers?._id, name, email: email || undefined, companyId, department, departmentId, designation, shiftType, shiftTiming,
       managerId: managerId || undefined,
       joiningDate: joiningDate ? new Date(joiningDate) : null,
       annualCtc: annualCtc ? parseFloat(annualCtc) : null,
@@ -168,12 +184,12 @@ export const createEmployee = async (req: Request, res: Response) => {
     return { user: createdUsers, emp: createdEmployees };
   });
 
-  const populated = await Employee.findById(emp._id).populate('userId', 'id name email role');
+  const populated = await Employee.findById(emp._id).populate('userId', 'id name email role isActive accountStatus lastLoginAt');
   invalidatePrefix(`hr:employees:${companyId}`);
   invalidatePrefix(`ca:departments:${companyId}`);
   invalidate(`ca:dashboard:${companyId}`);
   logActivity(req, `Created employee ${name} (${employeeId})`, 'Employees');
-  const responseBody = { ...((populated as any)?.toObject() ?? populated), generatedPassword };
+  const responseBody = { ...employeeDto((populated as any)?.toObject() ?? populated), ...(createAccess ? { generatedPassword } : {}) };
   if (idempotencyRecord) {
     await IdempotencyKey.updateOne({ _id: idempotencyRecord._id }, { $set: { status: 'Completed', employeeId: emp._id, responseBody } });
   }
@@ -184,7 +200,7 @@ export const updateEmployee = async (req: Request, res: Response) => {
   const companyId = getCompanyId(req);
   const id = req.params.id as string;
   validateId(id);
-  const { department, designation, shiftType, shiftTiming, annualCtc, status, bankName, branchName, accountHolder, managerId } = req.body as Record<string, string>;
+  const { departmentId, department, designation, shiftType, shiftTiming, annualCtc, status, bankName, branchName, accountHolder, managerId } = req.body as Record<string, string>;
 
   const target = await Employee.findOne({ _id: id, companyId }).lean();
   if (!target) { res.status(404).json({ message: 'Employee not found' }); return; }
@@ -200,7 +216,12 @@ export const updateEmployee = async (req: Request, res: Response) => {
   }
 
   const update: Record<string, unknown> = {};
-  if (department !== undefined) update.department = department;
+  if (departmentId !== undefined) {
+    const departmentRecord = await Department.findOne({ _id: departmentId, companyId, isActive: true }).lean();
+    if (!departmentRecord) { res.status(400).json({ message: 'Select an active department from this company' }); return; }
+    update.departmentId = departmentId;
+    update.department = departmentRecord.name;
+  } else if (department !== undefined) update.department = department;
   if (designation !== undefined) update.designation = designation;
   if (shiftType !== undefined) update.shiftType = shiftType;
   if (shiftTiming !== undefined) update.shiftTiming = shiftTiming;

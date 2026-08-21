@@ -4,7 +4,7 @@ import { hrApi } from '../../api/hr';
 export const useCreateEmployee = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Record<string, string>) => {
+    mutationFn: (data: Record<string, unknown>) => {
       const key = globalThis.crypto?.randomUUID?.() ?? `employee-${Date.now()}-${Math.random().toString(36).slice(2)}`;
       return hrApi.createEmployee(data, key).then((r) => r.data);
     },
@@ -13,6 +13,7 @@ export const useCreateEmployee = () => {
       qc.invalidateQueries({ queryKey: ['hr', 'departments'] });
       qc.invalidateQueries({ queryKey: ['ca', 'dashboard'] });
       qc.invalidateQueries({ queryKey: ['ca', 'departments'] });
+      qc.invalidateQueries({ queryKey: ['ca', 'users'] });
     },
   });
 };

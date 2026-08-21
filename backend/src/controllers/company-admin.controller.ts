@@ -17,6 +17,7 @@ import RolePermission from '../models/RolePermission';
 import RefreshToken from '../models/RefreshToken';
 import { getCached, invalidate, invalidatePrefix } from '../utils/cache';
 import { getCompanyReference } from '../utils/companyReference';
+import Department from '../models/Department';
 
 const resolveCompanyId = (req: AuthRequest): string | undefined => {
   const tokenCompanyId = req.user?.companyId?.toString();
@@ -98,7 +99,7 @@ export const getUsers = async (req: AuthRequest, res: Response): Promise<void> =
 
       const [users, total]: [any[], number] = await Promise.all([
         User.find(where as any)
-          .select('id name email role isActive createdAt')
+          .select('id name email role isActive accountStatus lastLoginAt createdAt')
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
@@ -112,7 +113,7 @@ export const getUsers = async (req: AuthRequest, res: Response): Promise<void> =
         .lean();
 
       const empMap: Record<string, { employeeId: string; department?: string; designation?: string }> = {};
-      employees.forEach((e) => { empMap[e.userId.toString()] = { employeeId: e.employeeId, department: e.department ?? undefined, designation: e.designation ?? undefined }; });
+      employees.forEach((e) => { if (e.userId) empMap[e.userId.toString()] = { employeeId: e.employeeId, department: e.department ?? undefined, designation: e.designation ?? undefined }; });
 
       return {
         users: users.map((u: any) => ({
@@ -121,6 +122,8 @@ export const getUsers = async (req: AuthRequest, res: Response): Promise<void> =
           email: u.email,
           role: u.role,
           isActive: u.isActive,
+          accountStatus: u.accountStatus ?? (u.isActive ? 'ACTIVE' : 'SUSPENDED'),
+          lastLoginAt: u.lastLoginAt ?? null,
           createdAt: u.createdAt,
           employee: empMap[u._id.toString()] ?? null,
         })),
@@ -183,7 +186,7 @@ export const updateUser = async (req: AuthRequest, res: Response): Promise<void>
 
     const update: Record<string, unknown> = {};
     if (role) { update.role = role; update.$inc = { sessionVersion: 1 }; }
-    if (isActive !== undefined) { update.isActive = isActive; update.$inc = { sessionVersion: 1 }; }
+    if (isActive !== undefined) { update.isActive = isActive; update.accountStatus = isActive ? 'ACTIVE' : 'SUSPENDED'; update.$inc = { sessionVersion: 1 }; }
 
   const user = await User.findOneAndUpdate({ _id: id, companyId }, update, { returnDocument: 'after' }).select('id name email role isActive');
     if (isActive === false || role) await RefreshToken.deleteMany({ userId: id });
@@ -225,7 +228,8 @@ export const getDepartments = async (req: AuthRequest, res: Response): Promise<v
     if (!companyId) { res.json([]); return; }
 
     const result = await getCached(`ca:departments:${companyId}:detail`, async () => {
-      const [allDepts, activeDepts] = await Promise.all([
+      const [masters, allDepts, activeDepts] = await Promise.all([
+        Department.find({ companyId }).sort({ name: 1 }).lean(),
         Employee.aggregate([
           { $match: { companyId: new mongoose.Types.ObjectId(companyId) } },
           { $group: { _id: '$department', count: { $sum: 1 } } },
@@ -241,13 +245,9 @@ export const getDepartments = async (req: AuthRequest, res: Response): Promise<v
       const activeMap: Record<string, number> = {};
       activeDepts.forEach((d: { _id: string; count: number }) => { activeMap[d._id] = d.count; });
 
-      return allDepts
-        .map((d: { _id: string; count: number }) => ({
-          name: d._id,
-          total: d.count,
-          active: activeMap[d._id] ?? 0,
-        }))
-        .sort((a: { total: number }, b: { total: number }) => b.total - a.total);
+      const countMap: Record<string, number> = {};
+      allDepts.forEach((d: { _id: string; count: number }) => { countMap[d._id] = d.count; });
+      return masters.map((d: any) => ({ id: d._id.toString(), name: d.name, code: d.code, isActive: d.isActive, total: countMap[d.name] ?? 0, active: activeMap[d.name] ?? 0 }));
     }, 900);
 
     res.json(result);
@@ -255,6 +255,53 @@ export const getDepartments = async (req: AuthRequest, res: Response): Promise<v
     console.error(err);
     res.status(500).json({ message: 'Internal server error' });
   }
+};
+
+export const createDepartment = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const companyId = resolveCompanyId(req); if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
+    const name = String(req.body.name ?? '').trim(); const code = String(req.body.code ?? '').trim().toUpperCase();
+    if (!name || !code) { res.status(400).json({ message: 'Department name and code are required' }); return; }
+    const department = await Department.create({ companyId, name, code, isActive: true });
+    invalidatePrefix(`ca:departments:${companyId}`); invalidatePrefix(`hr:employees:${companyId}`); invalidate(`ca:dashboard:${companyId}`);
+    logActivity(req as any, `Created department ${name}`, 'Departments'); res.status(201).json(department);
+  } catch (err: any) { res.status(err?.code === 11000 ? 409 : 500).json({ message: err?.code === 11000 ? 'A department with this name or code already exists' : 'Internal server error' }); }
+};
+
+export const updateDepartment = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const companyId = resolveCompanyId(req); if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
+    const department = await Department.findOne({ _id: req.params.id, companyId });
+    if (!department) { res.status(404).json({ message: 'Department not found' }); return; }
+    const nextName = req.body.name === undefined ? department.name : String(req.body.name).trim();
+    const nextActive = req.body.isActive === undefined ? department.isActive : Boolean(req.body.isActive);
+    const employeeScope = { companyId, $or: [{ departmentId: department._id }, { department: department.name }] };
+    const headcount = await Employee.countDocuments(employeeScope);
+    if (!nextActive && headcount > 0) { res.status(409).json({ message: 'Reassign all employees before deactivating this department', headcount }); return; }
+    if (!nextName) { res.status(400).json({ message: 'Department name is required' }); return; }
+    if (nextName !== department.name) await Employee.updateMany(employeeScope, { $set: { department: nextName, departmentId: department._id } });
+    department.name = nextName; department.isActive = nextActive; await department.save();
+    invalidatePrefix(`ca:departments:${companyId}`); invalidatePrefix(`hr:employees:${companyId}`); invalidate(`ca:dashboard:${companyId}`);
+    logActivity(req as any, `Updated department ${department.name}`, 'Departments'); res.json(department);
+  } catch (err: any) { res.status(err?.code === 11000 ? 409 : 500).json({ message: err?.code === 11000 ? 'Department name already exists' : 'Internal server error' }); }
+};
+
+export const provisionEmployeeAccount = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const companyId = resolveCompanyId(req); if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
+    const employee: any = await Employee.findOne({ _id: req.params.id, companyId });
+    if (!employee) { res.status(404).json({ message: 'Employee not found' }); return; }
+    if (employee.userId) { res.status(409).json({ message: 'This employee already has an account' }); return; }
+    const email = String(req.body.email ?? employee.email ?? '').trim().toLowerCase();
+    if (!email) { res.status(400).json({ message: 'An email is required to provision access' }); return; }
+    if (await User.findOne({ email })) { res.status(409).json({ message: 'Email already belongs to another account' }); return; }
+    const rawPassword = crypto.randomBytes(12).toString('base64url');
+    const user: any = await User.create({ companyId, name: employee.name, email, password: await bcrypt.hash(rawPassword, 10), role: req.body.role || 'EMPLOYEE', accountStatus: 'INVITED', isActive: true });
+    employee.userId = user._id; employee.email = email; await employee.save();
+    invalidatePrefix(`ca:users:${companyId}`); invalidatePrefix(`hr:employees:${companyId}`); invalidate(`ca:dashboard:${companyId}`);
+    logActivity(req as any, `Provisioned account for ${employee.name}`, 'Users');
+    res.status(201).json({ id: user._id.toString(), email, role: user.role, accountStatus: user.accountStatus, generatedPassword: rawPassword });
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }); }
 };
 
 export const getCompany = async (req: AuthRequest, res: Response): Promise<void> => {

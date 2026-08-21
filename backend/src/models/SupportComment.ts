@@ -9,4 +9,13 @@ const supportCommentSchema = new Schema({
 
 supportCommentSchema.index({ ticketId: 1, createdAt: 1 });
 
+supportCommentSchema.set('toJSON', {
+  virtuals: true,
+  transform: (_doc: unknown, ret: any) => {
+    ret.id = ret._id.toString();
+    delete ret._id;
+    delete ret.__v;
+  },
+});
+
 export default mongoose.model('SupportComment', supportCommentSchema);

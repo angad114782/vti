@@ -5,15 +5,14 @@ import { Search, Plus, X, ChevronDown, Loader2, Copy, CheckCircle2 } from 'lucid
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import PaginationBar from '../../components/data/Pagination';
 import { useEmployees } from '../../hooks/queries/useHrQueries';
-import { useHrDepartments } from '../../hooks/queries/useHrQueries';
+import { useCaDepartments } from '../../hooks/queries/useCaQueries';
 import { useCreateEmployee } from '../../hooks/mutations/useHrMutations';
-
-const DEPTS = ['All', 'Engineering', 'Operations', 'HR', 'Finance', 'Sales', 'Support'];
+import { useProvisionEmployeeAccount } from '../../hooks/mutations/useCaMutations';
 
 interface AddEmpForm {
-  name: string; dept: string; designation: string; email: string; type: string; joined: string;
+  name: string; dept: string; designation: string; email: string; type: string; joined: string; createAccess: boolean; role: string;
 }
-const EMPTY_FORM: AddEmpForm = { name: '', dept: '', designation: '', email: '', type: 'Permanent', joined: '' };
+const EMPTY_FORM: AddEmpForm = { name: '', dept: '', designation: '', email: '', type: 'Permanent', joined: '', createAccess: true, role: 'EMPLOYEE' };
 
 const ini = (n: string) => n.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
@@ -36,28 +35,31 @@ export default function CAWorkforcePage() {
   if (deptFilter !== 'All') empParams.department = deptFilter;
 
   const { data: empData, isLoading: loading } = useEmployees(empParams);
-  const { data: deptsData } = useHrDepartments();
+  const { data: deptsData } = useCaDepartments();
   const createEmployee = useCreateEmployee();
+  const provisionAccount = useProvisionEmployeeAccount();
 
   const employees  = empData?.employees  ?? [];
   const stats      = empData?.stats      ?? { total: 0, active: 0, inactive: 0, departments: 0 };
   const pagination = empData?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
-  const depts      = deptsData           ?? [];
+  const depts      = (deptsData ?? []).filter((d) => d.isActive);
 
   const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
   const handleDeptFilter   = (d: string) => { setDeptFilter(d); setPage(1); };
 
   const handleAddEmployee = () => {
-    if (!form.name || !form.email) { setAddError('Name and email are required'); return; }
+    if (!form.name || !form.dept || (form.createAccess && !form.email)) { setAddError('Name, department, and an email when creating access are required'); return; }
     setAddError('');
     createEmployee.mutate(
       {
         name: form.name,
         email: form.email,
-        department: form.dept,
+        departmentId: form.dept,
         designation: form.designation,
         joiningDate: form.joined,
         employmentType: form.type,
+        createAccess: form.createAccess,
+        role: form.role,
       },
       {
         onSuccess: (data) => {
@@ -80,7 +82,7 @@ export default function CAWorkforcePage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const maxBar = Math.max(...depts.map((d) => d.count), 1);
+  const maxBar = Math.max(...depts.map((d) => d.total), 1);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -125,10 +127,10 @@ export default function CAWorkforcePage() {
                 <div key={d.name}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <span style={{ fontSize: '11px', color: '#374151', fontWeight: 500 }}>{d.name}</span>
-                    <span style={{ fontSize: '10px', color: '#64748b' }}>{d.count}</span>
+                    <span style={{ fontSize: '10px', color: '#64748b' }}>{d.total}</span>
                   </div>
                   <div style={{ height: '10px', backgroundColor: '#f1f5f9', borderRadius: '5px', overflow: 'hidden' }}>
-                    <div style={{ width: `${(d.count / maxBar) * 100}%`, height: '100%', backgroundColor: '#0d7470' }} />
+                    <div style={{ width: `${(d.total / maxBar) * 100}%`, height: '100%', backgroundColor: '#0d7470' }} />
                   </div>
                 </div>
               ))}
@@ -141,7 +143,7 @@ export default function CAWorkforcePage() {
           {/* Controls */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {DEPTS.map((d) => (
+              {['All', ...depts.map((d) => d.name)].map((d) => (
                 <button key={d} onClick={() => handleDeptFilter(d)} style={{ padding: '5px 11px', borderRadius: '20px', border: `1px solid ${deptFilter === d ? '#0d7470' : '#e2e8f0'}`, backgroundColor: deptFilter === d ? '#0d7470' : 'white', color: deptFilter === d ? 'white' : '#374151', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
                   {d}
                 </button>
@@ -166,7 +168,7 @@ export default function CAWorkforcePage() {
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ backgroundColor: '#f8fafc' }}>
-                    {['ID', 'Name', 'Department', 'Designation', 'Type', 'Joined', 'Status'].map((h) => (
+                    {['ID', 'Name', 'Department', 'Designation', 'Type', 'Access', 'Status'].map((h) => (
                       <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px', borderBottom: '1px solid #e2e8f0' }}>{h}</th>
                     ))}
                   </tr>
@@ -186,9 +188,7 @@ export default function CAWorkforcePage() {
                       <td style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9' }}>
                         <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, backgroundColor: e.employmentType === 'Permanent' ? '#eff6ff' : '#fef3c7', color: e.employmentType === 'Permanent' ? '#2563eb' : '#d97706' }}>{e.employmentType}</span>
                       </td>
-                      <td style={{ padding: '10px 14px', fontSize: '11px', color: '#64748b', borderBottom: '1px solid #f1f5f9' }}>
-                        {e.joiningDate ? new Date(e.joiningDate).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
-                      </td>
+                      <td style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9' }}>{e.user.accountStatus === 'NOT_CREATED' ? <button onClick={() => provisionAccount.mutate({ id: e.id, data: { email: e.user.email || undefined } }, { onSuccess: () => toast.success('Account provisioned') })} style={{ padding:'4px 7px', border:'1px solid #0d7470', borderRadius:6, background:'white', color:'#0d7470', cursor:'pointer', fontSize:10, fontWeight:700 }}>Provision access</button> : <span style={{ fontSize: '10px', fontWeight: 700, color: e.user.accountStatus === 'INVITED' ? '#b45309' : '#15803d' }}>{e.user.accountStatus === 'INVITED' ? 'Invited' : 'Active'}</span>}</td>
                       <td style={{ padding: '10px 14px', borderBottom: '1px solid #f1f5f9' }}>
                         <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 600, backgroundColor: e.status === 'Active' ? '#f0fdf4' : '#fef2f2', color: e.status === 'Active' ? '#16a34a' : '#dc2626' }}>{e.status}</span>
                       </td>
@@ -237,7 +237,7 @@ export default function CAWorkforcePage() {
                   <div style={{ position: 'relative' }}>
                     <select value={form.dept} onChange={(e) => setForm((p) => ({ ...p, dept: e.target.value }))} style={{ width: '100%', padding: '8px 12px', border: '1px solid #e2e8f0', borderRadius: '7px', fontSize: '12px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', appearance: 'none', backgroundColor: 'white' }}>
                       <option value="">Select department</option>
-                      {DEPTS.filter((d) => d !== 'All').map((d) => <option key={d}>{d}</option>)}
+                      {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                     </select>
                     <ChevronDown size={12} style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none' }} />
                   </div>
@@ -251,6 +251,11 @@ export default function CAWorkforcePage() {
                       </button>
                     ))}
                   </div>
+                </div>
+                <div style={{ padding: '11px', border: '1px solid #e2e8f0', borderRadius: '8px', background: '#f8fafc' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 600, color: '#374151', cursor: 'pointer' }}><input type="checkbox" checked={form.createAccess} onChange={(e) => setForm((p) => ({ ...p, createAccess: e.target.checked }))} /> Create login access now</label>
+                  <p style={{ fontSize: '11px', color: '#64748b', margin: '5px 0 0 24px' }}>You can provision access later from the employee record.</p>
+                  {form.createAccess && <select value={form.role} onChange={(e) => setForm((p) => ({ ...p, role: e.target.value }))} style={{ margin: '10px 0 0 24px', padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '12px' }}>{['EMPLOYEE','SUPERVISOR','MANAGER','HR','FINANCE'].map((r) => <option key={r}>{r}</option>)}</select>}
                 </div>
               </div>
             </div>

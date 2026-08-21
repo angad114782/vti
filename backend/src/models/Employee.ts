@@ -4,10 +4,15 @@ import { normalizeSearchText } from '../utils/query';
 const employeeSchema = new Schema({
   employeeId: { type: String, required: true },
   employeeIdSearch: { type: String, index: true },
-  userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  // Employment exists independently of application access.  Existing records keep
+  // their userId; new workers may be created before an account is provisioned.
+  userId: { type: Schema.Types.ObjectId, ref: 'User', unique: true, sparse: true },
+  name: { type: String, required: true, trim: true },
+  email: { type: String, trim: true, lowercase: true },
   companyId: { type: Schema.Types.ObjectId, ref: 'Company', required: true },
   managerId: { type: Schema.Types.ObjectId, ref: 'Employee' },
   department: String,
+  departmentId: { type: Schema.Types.ObjectId, ref: 'Department' },
   departmentSearch: { type: String, index: true },
   designation: String,
   designationSearch: { type: String, index: true },

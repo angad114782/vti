@@ -1,10 +1,11 @@
 import { Outlet, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import CompanyAdminSidebar from './CompanyAdminSidebar';
-import { Bell, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { ErrorBoundary } from '../ErrorBoundary';
 import SubscriptionBanner from '../subscription/SubscriptionBanner';
 import GlobalSearch from '../search/GlobalSearch';
+import NotificationBell from '../notifications/NotificationBell';
 
 const avatarColors = [
   { bg: '#eef2ff', color: '#6366f1' }, { bg: '#f0fdf4', color: '#0d7470' },
@@ -37,10 +38,7 @@ export default function CompanyAdminLayout() {
             <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', display: 'flex', alignItems: 'center' }}><RefreshCw size={13} /></button>
           </div>
           <div style={{ width: '1px', height: '20px', backgroundColor: '#e2e8f0' }} />
-          <button style={{ position: 'relative', width: '32px', height: '32px', borderRadius: '8px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-            <Bell size={14} color="#64748b" />
-            <span style={{ position: 'absolute', top: '5px', right: '6px', width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
-          </button>
+          <NotificationBell supportPath="/company-admin/support" />
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: av.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: av.color, fontWeight: 700, fontSize: '11px' }}>{ini(user.name ?? 'A')}</div>
             <div>

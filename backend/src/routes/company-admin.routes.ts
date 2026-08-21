@@ -3,7 +3,7 @@ import { authenticate, requireRole } from '../middleware/auth.middleware';
 import {
   getDashboard,
   getUsers, createUser, updateUser, deleteUser,
-  getDepartments,
+  getDepartments, createDepartment, updateDepartment, provisionEmployeeAccount,
   getCompany, updateCompany,
   getModules, toggleModule,
   getActivity,
@@ -30,6 +30,9 @@ router.post('/users',              requirePermission(PERMISSIONS.WORKFORCE_EDIT)
 router.patch('/users/:id',         requirePermission(PERMISSIONS.WORKFORCE_EDIT), validateBody(updateUserSchema), updateUser);
 router.delete('/users/:id',        requirePermission(PERMISSIONS.WORKFORCE_EDIT), deleteUser);
 router.get('/departments',         requirePermission(PERMISSIONS.WORKFORCE_VIEW), getDepartments);
+router.post('/departments',        requirePermission(PERMISSIONS.WORKFORCE_EDIT), createDepartment);
+router.patch('/departments/:id',   requirePermission(PERMISSIONS.WORKFORCE_EDIT), updateDepartment);
+router.post('/employees/:id/account', requirePermission(PERMISSIONS.WORKFORCE_EDIT), provisionEmployeeAccount);
 router.get('/company',             requirePermission(PERMISSIONS.SETTINGS_COMPANY), getCompany);
 router.patch('/company',           requirePermission(PERMISSIONS.SETTINGS_COMPANY), updateCompany);
 router.get('/modules',             requirePermission(PERMISSIONS.SETTINGS_COMPANY), getModules);

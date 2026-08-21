@@ -37,6 +37,21 @@ export const useDeleteCaUser = () => {
   });
 };
 
+export const useCreateCaDepartment = () => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (d: { name: string; code: string }) => caApi.createDepartment(d).then((r) => r.data), onSuccess: () => { qc.invalidateQueries({ queryKey: ['ca', 'departments'] }); qc.invalidateQueries({ queryKey: ['hr', 'departments'] }); } });
+};
+
+export const useUpdateCaDepartment = () => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: ({ id, data }: { id: string; data: { name?: string; isActive?: boolean } }) => caApi.updateDepartment(id, data).then((r) => r.data), onSuccess: () => { qc.invalidateQueries({ queryKey: ['ca', 'departments'] }); qc.invalidateQueries({ queryKey: ['hr', 'employees'] }); } });
+};
+
+export const useProvisionEmployeeAccount = () => {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: ({ id, data }: { id: string; data: { email?: string; role?: string } }) => caApi.provisionEmployeeAccount(id, data).then((r) => r.data), onSuccess: () => { qc.invalidateQueries({ queryKey: ['hr', 'employees'] }); qc.invalidateQueries({ queryKey: ['ca', 'users'] }); } });
+};
+
 export const useUpdateCompany = () => {
   const qc = useQueryClient();
   return useMutation({

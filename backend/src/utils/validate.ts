@@ -72,8 +72,8 @@ export const updateCompanySchema = createCompanySchema.partial();
 // ── Employees ────────────────────────────────────────────────────────────────
 export const createEmployeeSchema = z.object({
   name: z.string().min(1),
-  email: z.string().email(),
-  department: z.string().optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  departmentId: objectIdSchema,
   designation: z.string().optional(),
   shiftType: z.string().optional(),
   shiftTiming: z.string().optional(),
@@ -84,9 +84,12 @@ export const createEmployeeSchema = z.object({
   branchName: z.string().optional(),
   accountHolder: z.string().optional(),
   managerId: objectIdSchema.optional(),
+  createAccess: z.boolean().optional(),
+  role: z.enum(['COMPANY_ADMIN', 'HR', 'SUPERVISOR', 'MANAGER', 'FINANCE', 'EMPLOYEE']).optional(),
 });
 
 export const updateEmployeeSchema = z.object({
+  departmentId: objectIdSchema.optional(),
   department: z.string().optional(),
   designation: z.string().optional(),
   shiftType: z.string().optional(),
