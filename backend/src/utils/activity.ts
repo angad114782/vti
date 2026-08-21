@@ -7,7 +7,7 @@ interface ActivityUser {
 }
 
 export const logActivity = async (
-  req: Request & { user?: ActivityUser },
+  req: Request & { user?: ActivityUser; requestId?: string },
   action: string,
   module: string,
   status = 'Success',
@@ -21,6 +21,7 @@ export const logActivity = async (
       status,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
+      requestId: req.requestId,
     });
   } catch (err: unknown) {
     console.error('[ActivityLog] Failed to write log:', err instanceof Error ? err.message : err);

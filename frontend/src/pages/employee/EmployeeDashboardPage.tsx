@@ -7,8 +7,8 @@ const avatarColors = [
   { bg: '#eef2ff', color: '#6366f1' }, { bg: '#f0fdf4', color: '#10b981' },
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'E').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'Employee').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
 interface Profile {
   employeeId: string; department: string | null; designation: string | null;
@@ -148,7 +148,7 @@ export default function EmployeeDashboardPage() {
                   <p style={{ fontSize: '22px', fontWeight: 800, color: '#0d7470', marginTop: '2px' }}>{fmtPay(latestPayslip.netPay)}</p>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'flex-end' }}>
-                  <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: latestPayslip.status === 'Paid' ? '#dcfce7' : '#fef9c3', color: latestPayslip.status === 'Paid' ? '#15803d' : '#854d0e' }}>{latestPayslip.status}</span>
+                  <span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: ['Finalized', 'Paid'].includes(latestPayslip.status) ? '#dcfce7' : '#fef9c3', color: ['Finalized', 'Paid'].includes(latestPayslip.status) ? '#15803d' : '#854d0e' }}>{latestPayslip.status}</span>
                   <button onClick={() => navigate('/employee/payslips')} style={{ padding: '7px 14px', backgroundColor: '#0d7470', color: 'white', border: 'none', borderRadius: '7px', fontSize: '11px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>View All</button>
                 </div>
               </div>

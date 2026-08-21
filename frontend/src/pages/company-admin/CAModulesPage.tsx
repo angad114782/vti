@@ -67,7 +67,7 @@ export default function CAModulesPage() {
                 <button
                   onClick={() => handleToggle(m)}
                   disabled={toggleModule.isPending && toggleModule.variables?.moduleId === m.module.id}
-                  style={{ width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: toggling === m.module.id ? 'not-allowed' : 'pointer', backgroundColor: m.isEnabled ? '#16a34a' : '#e2e8f0', position: 'relative', transition: 'background-color 0.2s', flexShrink: 0 }}>
+                  style={{ width: '44px', height: '24px', borderRadius: '12px', border: 'none', cursor: toggleModule.isPending ? 'not-allowed' : 'pointer', backgroundColor: m.isEnabled ? '#16a34a' : '#e2e8f0', position: 'relative', transition: 'background-color 0.2s', flexShrink: 0 }}>
                   <div style={{ position: 'absolute', top: '3px', left: m.isEnabled ? '22px' : '3px', width: '18px', height: '18px', borderRadius: '50%', backgroundColor: 'white', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
                 </button>
               </div>

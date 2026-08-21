@@ -1,14 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { supportApi, type SupportTicket } from '../../api/support';
 import { useSaSupport } from '../../hooks/queries/useSaQueries';
 import { extractError } from '../../utils/errorUtils';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import {
   TicketCheck, AlertCircle, Clock, CheckCircle2,
   Search, X, ChevronLeft, ChevronRight,
   Loader2, Plus, BookOpen, FileText, Users,
   Shield, BarChart3, Download, ChevronDown,
-  HelpCircle, Layers, Settings,
+  HelpCircle, Layers, Settings, Send, MessageSquare,
 } from 'lucide-react';
 
 // ── badge configs ──────────────────────────────────────────────────────────────
@@ -53,10 +56,11 @@ const avatarColors = [
   { bg: '#f0f9ff', color: '#0ea5e9' }, { bg: '#f0fdf4', color: '#10b981' },
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'S').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'Support').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 const fmtFull = (d: string) => new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const displayRole = (role?: string) => role && role !== 'SUPER_ADMIN' ? role.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) : '';
 
 // ── View Ticket Modal ──────────────────────────────────────────────────────────
 
@@ -66,9 +70,40 @@ function ViewModal({ ticket, onClose, onStatusChange }: {
   onStatusChange: (id: string, status: string) => void;
 }) {
   const [updating, setUpdating] = useState(false);
+  const [comments, setComments] = useState<Array<{ id: string; body: string; isInternal: boolean; createdAt: string; authorId?: { id?: string; name: string; role: string } }>>([]);
+  const [reply, setReply] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const typingTimer = useRef<number | undefined>(undefined);
+  const typingVisibilityTimer = useRef<number | undefined>(undefined);
+  const socketRef = useRef<ReturnType<typeof io> | null>(null);
+  const conversationRef = useRef<HTMLDivElement | null>(null);
+  const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const sm = STATUS_META[ticket.status]!;
   const pm = PRIORITY_META[ticket.priority]!;
   const av = ticket.user ? getAv(ticket.user.name) : avatarColors[0]!;
+
+  useEffect(() => {
+    let active = true;
+    const socket = io('/', { path: '/socket.io', auth: { token: localStorage.getItem('accessToken') } });
+    socketRef.current = socket;
+    void supportApi.getComments(ticket.id).then(({ data }) => { if (active) setComments(data.comments); });
+    socket.emit('support:join', { ticketId: ticket.id });
+    socket.on('support:comment', ({ ticketId, comment }) => { if (ticketId === ticket.id && active) setComments((previous) => previous.some((item) => item.id === comment.id) ? previous : [...previous, comment]); });
+    socket.on('support:typing', ({ ticketId, isTyping: typing }) => { if (ticketId !== ticket.id || !active) return; window.clearTimeout(typingVisibilityTimer.current); setIsTyping(Boolean(typing)); if (typing) typingVisibilityTimer.current = window.setTimeout(() => setIsTyping(false), 1600); });
+    return () => { active = false; window.clearTimeout(typingTimer.current); window.clearTimeout(typingVisibilityTimer.current); socket.emit('support:typing', { ticketId: ticket.id, isTyping: false }); socket.emit('support:leave', { ticketId: ticket.id }); socket.disconnect(); socketRef.current = null; };
+  }, [ticket.id]);
+
+  const sendReply = async () => {
+    const body = reply.trim(); if (!body) return;
+    const { data } = await supportApi.addComment(ticket.id, body); setComments((previous) => previous.some((item) => item.id === data.id) ? previous : [...previous, data]); setReply('');
+  };
+  const notifyTyping = (value: string) => {
+    setReply(value);
+    socketRef.current?.emit('support:typing', { ticketId: ticket.id, isTyping: Boolean(value) });
+    window.clearTimeout(typingTimer.current);
+    typingTimer.current = window.setTimeout(() => socketRef.current?.emit('support:typing', { ticketId: ticket.id, isTyping: false }), 1200);
+  };
+  useEffect(() => { if (conversationRef.current) conversationRef.current.scrollTop = conversationRef.current.scrollHeight; }, [comments, isTyping]);
 
   const handleStatus = async (status: string) => {
     setUpdating(true);
@@ -92,9 +127,9 @@ function ViewModal({ ticket, onClose, onStatusChange }: {
 
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}>
-      <div style={{ backgroundColor: 'white', borderRadius: '16px', width: '100%', maxWidth: '540px', boxShadow: '0 20px 60px rgba(0,0,0,0.15)', overflow: 'hidden', maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ backgroundColor: 'white', borderRadius: '16px', width: '100%', maxWidth: '760px', boxShadow: '0 20px 60px rgba(0,0,0,0.2)', overflow: 'hidden', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', background: 'linear-gradient(135deg, #0d4a47, #0d7470)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 22px', background: 'linear-gradient(135deg, #0d4a47, #0d7470)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '40px', height: '40px', borderRadius: '10px', backgroundColor: 'rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <TicketCheck size={18} color="white" />
@@ -107,7 +142,7 @@ function ViewModal({ ticket, onClose, onStatusChange }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)' }}><X size={20} /></button>
         </div>
 
-        <div style={{ padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: '14px', overflowY: 'auto', minHeight: 0 }}>
           {/* Badges */}
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <span style={{ padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, backgroundColor: sm.bg, color: sm.color }}>{sm.label}</span>
@@ -117,6 +152,16 @@ function ViewModal({ ticket, onClose, onStatusChange }: {
 
           {row('Subject', <strong>{ticket.subject}</strong>)}
           {row('Description', <p style={{ lineHeight: '1.6', color: '#374151' }}>{ticket.description}</p>)}
+
+          <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginBottom: '10px' }}><MessageSquare size={15} color="#0d7470" /><strong style={{ fontSize: '13px' }}>Conversation</strong></div>
+            <div ref={conversationRef} style={{ height: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '9px', padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+              {!comments.length && <p style={{ fontSize: '12px', color: '#94a3b8', textAlign: 'center', padding: '14px' }}>No replies yet.</p>}
+              {comments.map((comment) => <div key={comment.id} style={{ alignSelf: comment.authorId?.role === 'SUPER_ADMIN' ? 'flex-end' : 'flex-start', maxWidth: '82%', background: comment.authorId?.role === 'SUPER_ADMIN' ? '#e6fffa' : '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '9px 11px' }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', marginBottom: '3px' }}><div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><b style={{ fontSize: '11px', color: '#334155' }}>{comment.authorId?.name ?? 'User'}</b>{displayRole(comment.authorId?.role) && <span style={{ fontSize: '9px', fontWeight: 700, color: '#0d7470', background: '#ccfbf1', borderRadius: '4px', padding: '2px 5px' }}>{displayRole(comment.authorId?.role)}</span>}</div><span style={{ fontSize: '10px', color: '#94a3b8' }}>{fmtFull(comment.createdAt)}</span></div><p style={{ margin: 0, fontSize: '12px', color: '#334155', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{comment.body}</p></div>)}<div ref={conversationEndRef} />
+            </div>
+            {isTyping && <p style={{ margin: '8px 0 0', fontSize: '11px', color: '#0d7470', fontStyle: 'italic' }}>Customer is typing…</p>}
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}><input value={reply} onChange={(e) => notifyTyping(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendReply(); } }} placeholder="Write a reply…" style={{ flex: 1, padding: '9px 11px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '12px' }} /><button onClick={() => void sendReply()} disabled={!reply.trim()} style={{ border: 0, borderRadius: '8px', background: reply.trim() ? '#0d7470' : '#94a3b8', color: 'white', padding: '0 12px', cursor: reply.trim() ? 'pointer' : 'default' }}><Send size={15}/></button></div>
+          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
             {row('Submitted By', (
@@ -145,7 +190,7 @@ function ViewModal({ ticket, onClose, onStatusChange }: {
           </div>
         </div>
 
-        <div style={{ padding: '16px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ padding: '12px 22px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', flexShrink: 0 }}>
           <button onClick={onClose} style={{ padding: '8px 20px', backgroundColor: '#0d7470', border: 'none', borderRadius: '8px', color: 'white', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>Close</button>
         </div>
       </div>
@@ -269,6 +314,7 @@ function NewTicketModal({ companies, onClose, onCreated }: {
 
 function TicketsTab() {
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [companies,     setCompanies]     = useState<{ id: string; name: string }[]>([]);
   const [search,        setSearch]        = useState('');
   const [statusFilter,  setStatusFilter]  = useState('ALL');
@@ -277,9 +323,10 @@ function TicketsTab() {
   const [page,          setPage]          = useState(1);
   const [viewTicket,    setViewTicket]    = useState<SupportTicket | null>(null);
   const [showNew,       setShowNew]       = useState(false);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const ticketParams: Record<string, string> = { page: String(page), limit: '10' };
-  if (search) ticketParams.search = search;
+  if (debouncedSearch.trim().length >= 2) ticketParams.search = debouncedSearch.trim();
   if (statusFilter !== 'ALL') ticketParams.status = statusFilter;
   if (priorityFilter !== 'ALL') ticketParams.priority = priorityFilter;
   if (companyFilter !== 'ALL') ticketParams.company = companyFilter;
@@ -291,6 +338,12 @@ function TicketsTab() {
   useEffect(() => {
     supportApi.getCompanies().then(({ data }) => setCompanies(data)).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const ticketId = searchParams.get('ticket');
+    if (!ticketId) return;
+    supportApi.getOne(ticketId).then(({ data }) => setViewTicket(data)).finally(() => setSearchParams({}, { replace: true }));
+  }, [searchParams, setSearchParams]);
 
   const handleStatusChange = (id: string, status: string) => {
     void qc.invalidateQueries({ queryKey: ['sa', 'support'] });

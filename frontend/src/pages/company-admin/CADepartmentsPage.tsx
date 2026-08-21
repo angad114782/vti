@@ -1,95 +1,25 @@
-import { Loader2, Users, UserCheck, Building2 } from 'lucide-react';
+import { useState } from 'react';
+import { Building2, Plus, Pencil, Power, Users, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { useCaDepartments } from '../../hooks/queries/useCaQueries';
-
-const DEPT_COLORS = ['#6366f1', '#0d7470', '#7c3aed', '#ea580c', '#2563eb', '#16a34a', '#ec4899', '#f59e0b'];
+import { useCreateCaDepartment, useUpdateCaDepartment } from '../../hooks/mutations/useCaMutations';
 
 export default function CADepartmentsPage() {
-  const { data: depts = [], isLoading: loading } = useCaDepartments();
-
-  const totalEmp = depts.reduce((s, d) => s + d.total, 0);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>Departments</h1>
-          <p style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>View headcount and status across all departments</p>
-        </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <div style={{ backgroundColor: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '10px 16px', textAlign: 'center' }}>
-            <p style={{ fontSize: '20px', fontWeight: 800, color: '#6366f1' }}>{depts.length}</p>
-            <p style={{ fontSize: '10px', color: '#94a3b8', marginTop: '1px' }}>Departments</p>
-          </div>
-          <div style={{ backgroundColor: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '10px 16px', textAlign: 'center' }}>
-            <p style={{ fontSize: '20px', fontWeight: 800, color: '#0f172a' }}>{totalEmp}</p>
-            <p style={{ fontSize: '10px', color: '#94a3b8', marginTop: '1px' }}>Total Employees</p>
-          </div>
-        </div>
-      </div>
-
-      {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '80px' }}><Loader2 size={24} style={{ animation: 'spin 1s linear infinite' }} color="#6366f1" /></div>
-      ) : (
-        <>
-          {/* Visual bar comparison */}
-          <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '20px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a', marginBottom: '16px' }}>Headcount by Department</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {depts.map((d, idx) => {
-                const pct    = totalEmp > 0 ? (d.total / totalEmp) * 100 : 0;
-                const color  = DEPT_COLORS[idx % DEPT_COLORS.length]!;
-                return (
-                  <div key={d.name}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ width: '10px', height: '10px', borderRadius: '2px', backgroundColor: color }} />
-                        <span style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>{d.name}</span>
-                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>({d.active} active)</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>{pct.toFixed(1)}%</span>
-                        <span style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a' }}>{d.total}</span>
-                      </div>
-                    </div>
-                    <div style={{ height: '10px', backgroundColor: '#f1f5f9', borderRadius: '5px', overflow: 'hidden' }}>
-                      <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color, borderRadius: '5px', opacity: 0.85 }} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Cards grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '14px' }}>
-            {depts.map((d, idx) => {
-              const color  = DEPT_COLORS[idx % DEPT_COLORS.length]!;
-              const actPct = d.total > 0 ? Math.round((d.active / d.total) * 100) : 0;
-              return (
-                <div key={d.name} style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px', borderTop: `3px solid ${color}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '9px', backgroundColor: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Building2 size={17} color={color} />
-                    </div>
-                    <span style={{ fontSize: '10px', fontWeight: 700, color, backgroundColor: `${color}15`, padding: '3px 8px', borderRadius: '20px' }}>{actPct}% active</span>
-                  </div>
-                  <p style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>{d.name}</p>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginTop: '12px' }}>
-                    <div style={{ backgroundColor: '#f8fafc', borderRadius: '7px', padding: '8px 10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}><Users size={11} color="#94a3b8" /><span style={{ fontSize: '10px', color: '#94a3b8' }}>Total</span></div>
-                      <span style={{ fontSize: '18px', fontWeight: 800, color: '#0f172a' }}>{d.total}</span>
-                    </div>
-                    <div style={{ backgroundColor: '#f0fdf4', borderRadius: '7px', padding: '8px 10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}><UserCheck size={11} color="#16a34a" /><span style={{ fontSize: '10px', color: '#94a3b8' }}>Active</span></div>
-                      <span style={{ fontSize: '18px', fontWeight: 800, color: '#16a34a' }}>{d.active}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
-      )}
-    </div>
-  );
+  const { data: departments = [], isLoading } = useCaDepartments();
+  const create = useCreateCaDepartment(); const update = useUpdateCaDepartment();
+  const [form, setForm] = useState<{ id?: string; name: string; code: string } | null>(null);
+  const save = () => {
+    if (!form?.name || !form.code) return toast.error('Name and code are required');
+    const done = () => { setForm(null); toast.success('Department saved'); };
+    if (form.id) update.mutate({ id: form.id, data: { name: form.name } }, { onSuccess: done, onError: (e: any) => toast.error(e.response?.data?.message ?? 'Unable to update department') });
+    else create.mutate({ name: form.name, code: form.code }, { onSuccess: done, onError: (e: any) => toast.error(e.response?.data?.message ?? 'Unable to create department') });
+  };
+  const toggle = (id: string, isActive: boolean) => update.mutate({ id, data: { isActive: !isActive } }, { onSuccess: () => toast.success(isActive ? 'Department deactivated' : 'Department activated'), onError: (e: any) => toast.error(e.response?.data?.message ?? 'Unable to change status') });
+  return <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}><div><h1 style={title}>Departments</h1><p style={sub}>Organization master data. Set departments up before assigning people.</p></div><button style={primary} onClick={() => setForm({ name: '', code: '' })}><Plus size={15}/> Add department</button></div>
+    <div style={notice}><Building2 size={16}/><span>Department codes are permanent. To deactivate a department, first move all assigned employees to another active department.</span></div>
+    <div style={card}><table style={{ width: '100%', borderCollapse: 'collapse' }}><thead><tr>{['Department','Code','Active headcount','Status',''].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead><tbody>{departments.map(d => <tr key={d.id} style={{ opacity: d.isActive ? 1 : .58 }}><td style={td}><b>{d.name}</b></td><td style={{ ...td, fontFamily: 'monospace', color: '#64748b' }}>{d.code}</td><td style={td}><span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Users size={13}/>{d.active} active <span style={{ color:'#94a3b8' }}>({d.total} total)</span></span></td><td style={td}><span style={{ ...badge, background: d.isActive ? '#ecfdf5' : '#f1f5f9', color: d.isActive ? '#047857' : '#64748b' }}>{d.isActive ? 'Active' : 'Inactive'}</span></td><td style={td}><button style={icon} title="Rename" onClick={() => setForm({ id:d.id,name:d.name,code:d.code })}><Pencil size={14}/></button><button style={icon} title={d.isActive ? 'Deactivate' : 'Activate'} onClick={() => toggle(d.id,d.isActive)}><Power size={14}/></button></td></tr>)}{!isLoading && !departments.length && <tr><td colSpan={5} style={{ ...td, textAlign:'center', padding:40, color:'#64748b' }}>Create your first department to begin building your workforce.</td></tr>}</tbody></table></div>
+    {form && <div style={overlay}><div style={modal}><button style={{ ...icon, float:'right' }} onClick={() => setForm(null)}><X size={16}/></button><h2 style={{ margin:0, fontSize:17 }}>{form.id ? 'Rename department' : 'Add department'}</h2><p style={sub}>{form.id ? 'The department code cannot be changed.' : 'Use a concise, unique code for reporting and integrations.'}</p><label style={label}>Department name</label><input style={input} value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/><label style={label}>Code</label><input disabled={!!form.id} style={{...input,opacity:form.id ? .6:1}} value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})}/><div style={{display:'flex',justifyContent:'flex-end',gap:8,marginTop:20}}><button style={secondary} onClick={()=>setForm(null)}>Cancel</button><button style={primary} onClick={save}>Save department</button></div></div></div>}
+  </div>;
 }
+const title: React.CSSProperties={fontSize:22,fontWeight:750,color:'#0f172a',margin:0}; const sub: React.CSSProperties={fontSize:13,color:'#64748b',margin:'5px 0 0'}; const primary:React.CSSProperties={display:'inline-flex',alignItems:'center',gap:7,padding:'9px 14px',background:'#0d7470',color:'white',border:0,borderRadius:8,fontWeight:650,cursor:'pointer'}; const secondary:React.CSSProperties={...primary,background:'white',color:'#334155',border:'1px solid #cbd5e1'}; const card:React.CSSProperties={background:'white',border:'1px solid #e2e8f0',borderRadius:12,overflow:'hidden'}; const th:React.CSSProperties={textAlign:'left',padding:'12px 16px',fontSize:11,textTransform:'uppercase',letterSpacing:.4,color:'#64748b',background:'#f8fafc'}; const td:React.CSSProperties={padding:'14px 16px',borderTop:'1px solid #f1f5f9',fontSize:13,color:'#334155'}; const icon:React.CSSProperties={padding:7,marginRight:5,border:'1px solid #e2e8f0',borderRadius:7,background:'white',color:'#475569',cursor:'pointer'}; const badge:React.CSSProperties={padding:'4px 8px',borderRadius:20,fontSize:11,fontWeight:700}; const notice:React.CSSProperties={display:'flex',gap:9,alignItems:'center',padding:'11px 13px',borderRadius:9,background:'#eff6ff',color:'#1d4ed8',fontSize:12}; const overlay:React.CSSProperties={position:'fixed',inset:0,zIndex:1000,background:'rgba(15,23,42,.45)',display:'grid',placeItems:'center'}; const modal:React.CSSProperties={background:'white',padding:24,borderRadius:14,width:400,maxWidth:'92vw'}; const label:React.CSSProperties={display:'block',fontSize:12,fontWeight:700,marginTop:15,marginBottom:5,color:'#374151'}; const input:React.CSSProperties={width:'100%',boxSizing:'border-box',padding:'9px 10px',border:'1px solid #cbd5e1',borderRadius:8,fontSize:13};

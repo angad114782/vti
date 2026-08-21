@@ -7,6 +7,8 @@ import Attendance from '../models/Attendance';
 import Payslip from '../models/Payslip';
 import Expense from '../models/Expense';
 import Document from '../models/Document';
+import LeaveLedger from '../models/LeaveLedger';
+import LeaveBalance from '../models/LeaveBalance';
 import { parsePagination, paginationMeta } from '../utils/query';
 import { buildWorkflowState } from '../utils/workflow';
 
@@ -39,10 +41,12 @@ export const getMyAttendance = async (req: AuthRequest, res: Response): Promise<
 
     const [attendanceRows, leaves] = await Promise.all([
       Attendance.find({
+        companyId: emp.get('companyId'),
         employeeId: emp._id,
         date: { $gte: startOfMonth, $lte: endOfMonth },
       }).lean(),
       LeaveRequest.find({
+        companyId: emp.get('companyId'),
         employeeId: emp._id,
         status: 'Approved',
         startDate: { $lte: endOfMonth },
@@ -139,25 +143,18 @@ export const getMyLeaves = async (req: AuthRequest, res: Response): Promise<void
     const emp = await getEmployee(req.user!.userId);
     if (!emp) { res.status(404).json({ message: 'Employee not found' }); return; }
 
-    const leaves = await LeaveRequest.find({ employeeId: emp._id }).sort({ createdAt: -1 }).lean();
+    const leaves = await LeaveRequest.find({ companyId: emp.get('companyId'), employeeId: emp._id }).sort({ createdAt: -1, _id: -1 }).lean();
 
     const pending  = leaves.filter((l) => l.status === 'Pending').length;
     const approved = leaves.filter((l) => l.status === 'Approved').length;
     const rejected = leaves.filter((l) => l.status === 'Rejected').length;
 
-    const usedCasual = leaves.filter((l) => l.leaveType === 'Casual'  && l.status === 'Approved').reduce((s, l) => s + (l.days as number), 0);
-    const usedSick   = leaves.filter((l) => l.leaveType === 'Sick'    && l.status === 'Approved').reduce((s, l) => s + (l.days as number), 0);
-    const usedEarned = leaves.filter((l) => l.leaveType === 'Earned'  && l.status === 'Approved').reduce((s, l) => s + (l.days as number), 0);
+    const balances = await LeaveBalance.find({ companyId: emp.get('companyId'), employeeId: emp._id }).sort({ leaveType: 1 }).lean();
 
     res.json({
       leaves,
       stats: { pending, approved, rejected, total: leaves.length },
-      balance: [
-        { type: 'Casual Leave',   total: 12, used: usedCasual,  remaining: Math.max(0, 12 - usedCasual)  },
-        { type: 'Sick Leave',     total: 10, used: usedSick,    remaining: Math.max(0, 10 - usedSick)    },
-        { type: 'Earned Leave',   total: 15, used: usedEarned,  remaining: Math.max(0, 15 - usedEarned)  },
-        { type: 'Optional Leave', total: 3,  used: 0,           remaining: 3                              },
-      ],
+      balance: balances.map((balance) => ({ type: balance.leaveType, total: balance.openingDays + balance.accruedDays + balance.carryForwardDays + balance.adjustedDays, used: balance.usedDays, remaining: Math.max(0, balance.openingDays + balance.accruedDays + balance.carryForwardDays + balance.adjustedDays - balance.usedDays), expiresAt: balance.expiresAt ?? null })),
     });
   } catch (err) {
     console.error(err);
@@ -170,13 +167,35 @@ export const applyLeave = async (req: AuthRequest, res: Response): Promise<void>
     const emp = await getEmployee(req.user!.userId);
     if (!emp) { res.status(404).json({ message: 'Employee not found' }); return; }
 
-    const { leaveType, startDate, endDate, reason } = req.body as {
-      leaveType: string; startDate: string; endDate: string; reason: string;
+    const { leaveType, startDate, endDate, reason, isHalfDay } = req.body as {
+      leaveType: string; startDate: string; endDate: string; reason: string; isHalfDay?: boolean;
     };
 
     const start = new Date(startDate);
     const end   = new Date(endDate);
-    const days  = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+      res.status(400).json({ message: 'Leave dates are invalid or out of order', code: 'INVALID_DATE_RANGE' });
+      return;
+    }
+    const overlapping = await LeaveRequest.exists({
+      companyId: emp.get('companyId'),
+      employeeId: emp._id,
+      status: { $in: ['Pending', 'Approved'] },
+      startDate: { $lte: end },
+      endDate: { $gte: start },
+    });
+    if (overlapping) {
+      res.status(409).json({ message: 'This leave overlaps an existing pending or approved request', code: 'LEAVE_OVERLAP' });
+      return;
+    }
+    const configuredBalance = await LeaveBalance.findOne({ companyId: emp.get('companyId'), employeeId: emp._id, leaveType }).lean();
+    if (configuredBalance) {
+      const total = configuredBalance.openingDays + configuredBalance.accruedDays + configuredBalance.carryForwardDays + configuredBalance.adjustedDays;
+      if (total - configuredBalance.usedDays < (isHalfDay ? 0.5 : Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1))) {
+        res.status(409).json({ message: 'Insufficient leave balance', code: 'INSUFFICIENT_LEAVE_BALANCE' }); return;
+      }
+    }
+    const days  = isHalfDay ? 0.5 : Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000) + 1);
     const workflowState = await buildWorkflowState(req, 'leave');
 
     const leave = await LeaveRequest.create({
@@ -186,8 +205,10 @@ export const applyLeave = async (req: AuthRequest, res: Response): Promise<void>
       startDate:  start,
       endDate:    end,
       days,
+      isHalfDay: Boolean(isHalfDay),
       reason,
       status:     'Pending',
+      requesterUserId: req.user!.userId,
       ...workflowState,
     });
 
@@ -203,7 +224,7 @@ export const getMyPayslips = async (req: AuthRequest, res: Response): Promise<vo
     const emp = await getEmployee(req.user!.userId);
     if (!emp) { res.status(404).json({ message: 'Employee not found' }); return; }
 
-    const payslips = await Payslip.find({ employeeId: emp._id }).sort({ year: -1, month: -1 }).lean();
+    const payslips = await Payslip.find({ companyId: emp.get('companyId'), employeeId: emp._id }).sort({ year: -1, month: -1, _id: -1 }).lean();
     res.json(payslips);
   } catch (err) {
     console.error(err);
@@ -216,7 +237,7 @@ export const getMyExpenses = async (req: AuthRequest, res: Response): Promise<vo
     const emp = await getEmployee(req.user!.userId);
     if (!emp) { res.status(404).json({ message: 'Employee not found' }); return; }
 
-    const expenses = await Expense.find({ employeeId: emp._id }).sort({ createdAt: -1 }).lean();
+    const expenses = await Expense.find({ companyId: emp.get('companyId'), employeeId: emp._id }).sort({ createdAt: -1, _id: -1 }).lean();
 
     const pending  = expenses.filter((e) => e.status === 'Pending').length;
     const approved = expenses.filter((e) => e.status === 'Approved').length;
@@ -247,6 +268,7 @@ export const submitExpense = async (req: AuthRequest, res: Response): Promise<vo
       description,
       receiptUrl,
       status:      'Pending',
+      requesterUserId: req.user!.userId,
       ...workflowState,
     });
 
@@ -262,10 +284,11 @@ export const updateMyProfile = async (req: AuthRequest, res: Response): Promise<
     const userId = req.user!.userId;
     const { name, email } = req.body as { name?: string; email?: string };
     if (email) {
-      const conflict = await User.findOne({ email, _id: { $ne: userId } }).lean();
+      const normalizedEmail = email.trim().toLowerCase();
+      const conflict = await User.findOne({ email: normalizedEmail, _id: { $ne: userId } }).lean();
       if (conflict) { res.status(409).json({ message: 'Email already in use' }); return; }
     }
-    const updated = await User.findByIdAndUpdate(userId, { ...(name ? { name } : {}), ...(email ? { email } : {}) }, { new: true }).select('name email').lean();
+    const updated = await User.findByIdAndUpdate(userId, { ...(name ? { name: name.trim() } : {}), ...(email ? { email: email.trim().toLowerCase() } : {}) }, { returnDocument: 'after' }).select('name email').lean();
     if (!updated) { res.status(404).json({ message: 'User not found' }); return; }
     res.json(updated);
   } catch (err) {

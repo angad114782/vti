@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { modulesApi, type AppModule, type PermissionItem } from '../../api/modules';
-import { subscriptionsApi, type PlanData } from '../../api/subscriptions';
+import { type PlanData } from '../../api/subscriptions';
 import { useSaPlans } from '../../hooks/queries/useSaQueries';
 import { getPlanBadge } from '../../utils/planColors';
 import { toast } from 'sonner';
@@ -15,35 +15,40 @@ import {
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 const MODULE_GROUPS: Record<string, string[]> = {
-  'Core Modules': ['Employee Management', 'Attendance Tracking', 'Shift Management'],
-  'Finance Modules': ['Payroll Management', 'Leave Management', 'Expense Tracking'],
-  'Analytics': ['Reports'],
+  'Core Modules': ['Employee Management', 'Attendance', 'Shift Management'],
+  'Finance Modules': ['Payroll', 'Leave Management', 'Expense Management'],
+  'Analytics': ['Reports & Analytics'],
 };
 
 const MODULE_ICON: Record<string, React.ComponentType<{ size?: number; color?: string }>> = {
   'Employee Management': Users,
-  'Attendance Tracking': Clock,
+  'Attendance': Clock,
   'Shift Management': Settings2,
-  'Payroll Management': DollarSign,
+  'Payroll': DollarSign,
   'Leave Management': FileText,
-  'Expense Tracking': Briefcase,
-  'Reports': BarChart3,
+  'Expense Management': Briefcase,
+  'Reports & Analytics': BarChart3,
 };
 
 const MODULE_COLOR: Record<string, string> = {
   'Employee Management': '#3b82f6',
-  'Attendance Tracking': '#f59e0b',
+  'Attendance': '#f59e0b',
   'Shift Management': '#8b5cf6',
-  'Payroll Management': '#10b981',
+  'Payroll': '#10b981',
   'Leave Management': '#ec4899',
-  'Expense Tracking': '#0ea5e9',
-  'Reports': '#6366f1',
+  'Expense Management': '#0ea5e9',
+  'Reports & Analytics': '#6366f1',
 };
 
-const ROLES = ['Administrator', 'Accountant', 'Manager', 'Supervisor', 'Contract Workforce'];
+const ROLES = ['COMPANY_ADMIN', 'HR', 'MANAGER', 'SUPERVISOR', 'FINANCE', 'EMPLOYEE'];
+const ROLE_LABELS: Record<string, string> = {
+  COMPANY_ADMIN: 'Company Administrator', HR: 'HR', MANAGER: 'Manager',
+  SUPERVISOR: 'Supervisor', FINANCE: 'Finance', EMPLOYEE: 'Employee',
+};
 
-const PERM_MODULE_ORDER = ['ATTENDANCE', 'WORKFORCE', 'REPORTS', 'PAYROLL'];
+const PERM_MODULE_ORDER = ['GENERAL', 'ATTENDANCE', 'WORKFORCE', 'REPORTS', 'PAYROLL'];
 const PERM_MODULE_LABEL: Record<string, string> = {
+  GENERAL:    'General Permissions',
   ATTENDANCE: 'Attendance Module',
   WORKFORCE:  'Workforce Module',
   REPORTS:    'Reports Module',
@@ -88,17 +93,19 @@ function ModuleAccessTab({ plans }: { plans: PlanData[] }) {
   const [companies, setCompanies] = useState<{ id: string; name: string; plan: string }[]>([]);
   const [selectedCompany, setSelectedCompany] = useState('');
   const [modules, setModules] = useState<AppModule[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
     modulesApi.getCompanies().then(({ data }) => {
       setCompanies(data);
       if (data.length > 0) setSelectedCompany(data[0]!.id);
+      else setLoading(false);
     });
   }, []);
 
   const fetchModules = useCallback(async () => {
+    if (!selectedCompany) return;
     setLoading(true);
     try {
       const { data } = await modulesApi.getModules(selectedCompany || undefined);
@@ -108,7 +115,7 @@ function ModuleAccessTab({ plans }: { plans: PlanData[] }) {
     }
   }, [selectedCompany]);
 
-  useEffect(() => { void fetchModules(); }, [fetchModules]);
+  useEffect(() => { if (selectedCompany) void fetchModules(); }, [fetchModules, selectedCompany]);
 
   const handleToggle = async (mod: AppModule, val: boolean) => {
     if (!selectedCompany) return;
@@ -269,7 +276,8 @@ function ModuleCatalogueTab({ plans }: { plans: PlanData[] }) {
       setDeleteTarget(null);
       void load();
     } catch (err) {
-      toast.error(extractError(err, 'Failed to delete module'));
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status !== 409) toast.error(extractError(err, 'Failed to delete module'));
     } finally {
       setDeleting(false);
     }
@@ -431,7 +439,7 @@ function ModuleCatalogueTab({ plans }: { plans: PlanData[] }) {
 // ── Role Permissions Tab ──────────────────────────────────────────────────────
 
 function RolePermissionsTab() {
-  const [selectedRole, setSelectedRole] = useState('Administrator');
+  const [selectedRole, setSelectedRole] = useState('COMPANY_ADMIN');
   const [permissions, setPermissions] = useState<Record<string, PermissionItem[]>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
@@ -480,7 +488,7 @@ function RolePermissionsTab() {
               <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: `${color}20`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color, flexShrink: 0 }}>
                 {role.split(' ').map((w) => w[0]).slice(0, 2).join('')}
               </div>
-              <span style={{ fontSize: '13px', fontWeight: isActive ? 600 : 400, color: isActive ? color : '#374151', lineHeight: '1.3' }}>{role}</span>
+                <span style={{ fontSize: '13px', fontWeight: isActive ? 600 : 400, color: isActive ? color : '#374151', lineHeight: '1.3' }}>{ROLE_LABELS[role] ?? role}</span>
             </button>
           );
         })}
@@ -489,7 +497,7 @@ function RolePermissionsTab() {
       <div style={{ flex: 1, backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
         <div style={{ padding: '16px 22px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <p style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>{selectedRole}</p>
+            <p style={{ fontSize: '15px', fontWeight: 700, color: '#0f172a' }}>{ROLE_LABELS[selectedRole] ?? selectedRole}</p>
             <p style={{ fontSize: '12px', color: '#64748b', marginTop: '2px' }}>Manage permissions for this role</p>
           </div>
           {loading && <Loader2 size={16} color="#94a3b8" style={{ animation: 'spin 1s linear infinite' }} />}
@@ -531,7 +539,13 @@ function RolePermissionsTab() {
 
 export default function ModulesPage() {
   const [tab, setTab] = useState<'module' | 'catalogue' | 'role'>('module');
+  const [visitedTabs, setVisitedTabs] = useState<Set<'module' | 'catalogue' | 'role'>>(() => new Set(['module']));
   const { data: plans = [] } = useSaPlans();
+
+  const selectTab = (next: 'module' | 'catalogue' | 'role') => {
+    setTab(next);
+    setVisitedTabs((previous) => new Set(previous).add(next));
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -548,7 +562,7 @@ export default function ModulesPage() {
             { key: 'catalogue', label: 'Module Catalogue', Icon: BookOpen },
             { key: 'role',      label: 'Role Permissions', Icon: Shield },
           ] as const).map(({ key, label, Icon }) => (
-            <button key={key} onClick={() => setTab(key)} style={{
+            <button key={key} onClick={() => selectTab(key)} style={{
               display: 'flex', alignItems: 'center', gap: '6px',
               padding: '8px 18px', border: 'none', cursor: 'pointer',
               fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif',
@@ -564,9 +578,11 @@ export default function ModulesPage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'module'    && <ModuleAccessTab plans={plans} />}
-      {tab === 'catalogue' && <ModuleCatalogueTab plans={plans} />}
-      {tab === 'role'      && <RolePermissionsTab />}
+      <div style={{ minHeight: 420 }}>
+        {visitedTabs.has('module') && <div style={{ display: tab === 'module' ? 'block' : 'none' }}><ModuleAccessTab plans={plans} /></div>}
+        {visitedTabs.has('catalogue') && <div style={{ display: tab === 'catalogue' ? 'block' : 'none' }}><ModuleCatalogueTab plans={plans} /></div>}
+        {visitedTabs.has('role') && <div style={{ display: tab === 'role' ? 'block' : 'none' }}><RolePermissionsTab /></div>}
+      </div>
 
       {/* Quick Actions */}
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 22px' }}>

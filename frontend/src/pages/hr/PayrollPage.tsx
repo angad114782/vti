@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { type SalaryRow, type Payslip } from '../../api/hr';
 import { DollarSign, Download, Loader2 } from 'lucide-react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -14,8 +14,8 @@ const avatarColors = [
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
   { bg: '#f0f9ff', color: '#0ea5e9' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'H').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'User').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
 const STATUS_META: Record<string, { bg: string; color: string }> = {
   Paid:       { bg: '#dcfce7', color: '#15803d' },
@@ -24,12 +24,19 @@ const STATUS_META: Record<string, { bg: string; color: string }> = {
 };
 
 export default function PayrollPage() {
-  const [tab,    setTab]    = useState<'salary' | 'payslips'>('salary');
-  const [search, setSearch] = useState('');
-  const [page,   setPage]   = useState(1);
+  const [urlParams, setUrlParams] = useSearchParams();
+  const tab = urlParams.get('tab') === 'payslips' ? 'payslips' : 'salary';
+  const search = urlParams.get('search') ?? '';
+  const page = Math.max(1, Number(urlParams.get('page') ?? '1') || 1);
   const limit = 20;
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const updateUrl = (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(urlParams);
+    Object.entries(changes).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
+    setUrlParams(next, { replace: true });
+  };
+
+  const debouncedSearch = useDebouncedValue(search, 500);
   const params: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) params.search = debouncedSearch;
 
@@ -41,8 +48,8 @@ export default function PayrollPage() {
   const pagination = (tab === 'salary' ? salaryData?.pagination : payslipData?.pagination) ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
   const loading = tab === 'salary' ? salaryLoading : payslipLoading;
 
-  const handleTabChange    = (t: 'salary' | 'payslips') => { setTab(t); setPage(1); setSearch(''); };
-  const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
+  const handleTabChange    = (t: 'salary' | 'payslips') => updateUrl({ tab: t === 'salary' ? null : t, search: null, page: '1' });
+  const handleSearchChange = (v: string) => updateUrl({ search: v || null, page: '1' });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -154,7 +161,7 @@ export default function PayrollPage() {
         )}
       </div>
 
-      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => setPage(p)} />
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(p) => updateUrl({ page: String(p) })} />
 
       {/* Quick Actions */}
       <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 22px' }}>

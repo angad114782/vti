@@ -8,7 +8,7 @@ import { extractError } from '../../utils/errorUtils';
 import { useCaUsers } from '../../hooks/queries/useCaQueries';
 import { useCreateCaUser, useUpdateCaUser } from '../../hooks/mutations/useCaMutations';
 
-const ROLES = ['HR', 'MANAGER', 'SUPERVISOR', 'FINANCE', 'EMPLOYEE', 'COMPANY_ADMIN'];
+const ROLES = ['HR', 'MANAGER', 'SUPERVISOR', 'FINANCE', 'COMPANY_ADMIN'];
 
 const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
   HR:            { bg: '#f0fdfa', color: '#0d7470' },
@@ -20,7 +20,7 @@ const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
 };
 
 const avatarColors = ['#6366f1', '#0d7470', '#7c3aed', '#ea580c', '#2563eb', '#16a34a'];
-const getColor = (n: string) => avatarColors[n.charCodeAt(0) % avatarColors.length]!;
+const getColor = (n?: string) => avatarColors[(n ?? 'U').charCodeAt(0) % avatarColors.length]!;
 const ini = (n: string) => n.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -40,7 +40,7 @@ export default function CAUsersPage() {
   const [credentials,   setCredentials]   = useState<{ name: string; email: string; password: string } | null>(null);
   const [copied,        setCopied]        = useState(false);
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const params: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) params.search = debouncedSearch;
@@ -119,11 +119,11 @@ export default function CAUsersPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>Users</h1>
+          <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>User Access</h1>
           <p style={{ fontSize: '13px', color: '#64748b', marginTop: '2px' }}>Manage all users in your company — assign roles, activate or deactivate accounts</p>
         </div>
         <button onClick={() => setShowAdd(true)} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 16px', backgroundColor: '#6366f1', color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter, sans-serif' }}>
-          <Plus size={14} /> Add User
+          <Plus size={14} /> Add admin account
         </button>
       </div>
 
@@ -149,7 +149,7 @@ export default function CAUsersPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc' }}>
-                {['User', 'Role', 'Department', 'Joined', 'Status', 'Actions'].map((h) => (
+                {['Account', 'Role', 'Linked employee', 'Last sign-in', 'Status', 'Actions'].map((h) => (
                   <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontSize: '11px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px', borderBottom: '1px solid #f1f5f9', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -172,11 +172,11 @@ export default function CAUsersPage() {
                     <td style={{ padding: '12px 16px' }}>
                       <span style={{ padding: '3px 9px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: rc.bg, color: rc.color, whiteSpace: 'nowrap' }}>{u.role.replace('_', ' ')}</span>
                     </td>
-                    <td style={{ padding: '12px 16px' }}><span style={{ fontSize: '12px', color: '#64748b' }}>{u.employee?.department ?? '—'}</span></td>
-                    <td style={{ padding: '12px 16px' }}><span style={{ fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{fmtDate(u.createdAt)}</span></td>
+                    <td style={{ padding: '12px 16px' }}><span style={{ fontSize: '12px', color: '#64748b' }}>{u.employee ? `${u.employee.employeeId} · ${u.employee.department ?? 'Unassigned'}` : 'Standalone admin'}</span></td>
+                    <td style={{ padding: '12px 16px' }}><span style={{ fontSize: '12px', color: '#64748b', whiteSpace: 'nowrap' }}>{u.lastLoginAt ? fmtDate(u.lastLoginAt) : 'Never'}</span></td>
                     <td style={{ padding: '12px 16px' }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '3px 9px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: u.isActive ? '#f0fdf4' : '#fef2f2', color: u.isActive ? '#15803d' : '#b91c1c' }}>
-                        {u.isActive ? <CheckCircle2 size={10} /> : <XCircle size={10} />} {u.isActive ? 'Active' : 'Inactive'}
+                        {u.isActive ? <CheckCircle2 size={10} /> : <XCircle size={10} />} {u.accountStatus === 'INVITED' ? 'Invited' : u.isActive ? 'Active' : 'Suspended'}
                       </span>
                     </td>
                     <td style={{ padding: '12px 16px' }}>

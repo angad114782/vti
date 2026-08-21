@@ -9,6 +9,9 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 
 // Auth
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
+const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'));
+const RegistrationCompletePage = lazy(() => import('./pages/auth/RegistrationCompletePage'));
+const VerifyEmailPage = lazy(() => import('./pages/auth/VerifyEmailPage'));
 
 // Layouts (small, load eagerly via normal import for shell stability)
 import SuperAdminLayout from './components/layout/SuperAdminLayout';
@@ -18,6 +21,7 @@ import CompanyAdminLayout from './components/layout/CompanyAdminLayout';
 import EmployeeLayout from './components/layout/EmployeeLayout';
 import FinanceLayout from './components/layout/FinanceLayout';
 import SupervisorLayout from './components/layout/SupervisorLayout';
+import AccessGuard from './components/auth/AccessGuard';
 
 // Super Admin pages
 const DashboardPage       = lazy(() => import('./pages/super-admin/DashboardPage'));
@@ -27,6 +31,7 @@ const ActivityPage        = lazy(() => import('./pages/super-admin/ActivityPage'
 const ModulesPage         = lazy(() => import('./pages/super-admin/ModulesPage'));
 const SupportPage         = lazy(() => import('./pages/super-admin/SupportPage'));
 const SettingsPage        = lazy(() => import('./pages/super-admin/SettingsPage'));
+const PaymentsPage        = lazy(() => import('./pages/super-admin/PaymentsPage'));
 
 // HR pages
 const HRDashboardPage       = lazy(() => import('./pages/hr/HRDashboardPage'));
@@ -65,6 +70,7 @@ const CAModulesPage          = lazy(() => import('./pages/company-admin/CAModule
 const CASettingsPage         = lazy(() => import('./pages/company-admin/CASettingsPage'));
 const CARolesPage            = lazy(() => import('./pages/company-admin/CARolesPage'));
 const CAWorkflowsPage        = lazy(() => import('./pages/company-admin/CAWorkflowsPage'));
+const CASupportPage          = lazy(() => import('./pages/company-admin/CASupportPage'));
 
 // Employee pages
 const EmployeeDashboardPage = lazy(() => import('./pages/employee/EmployeeDashboardPage'));
@@ -100,6 +106,9 @@ function PageSpinner() {
   );
 }
 
+const guarded = (element: React.ReactElement, permission?: string, module?: string) =>
+  <AccessGuard permission={permission} module={module}>{element}</AccessGuard>;
+
 function RoleRedirect() {
   const { user } = useAuthStore();
   if (!user) return <Navigate to="/login" replace />;
@@ -120,6 +129,9 @@ export default function App() {
       <Suspense fallback={<PageSpinner />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/register/complete" element={<RegistrationCompletePage />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
 
           {/* Super Admin routes */}
           <Route path="/" element={<SuperAdminLayout />}>
@@ -127,6 +139,7 @@ export default function App() {
             <Route path="dashboard"     element={<DashboardPage />} />
             <Route path="companies"     element={<CompaniesPage />} />
             <Route path="subscriptions" element={<SubscriptionsPage />} />
+            <Route path="payments"      element={<PaymentsPage />} />
             <Route path="activity"      element={<ActivityPage />} />
             <Route path="modules"       element={<ModulesPage />} />
             <Route path="support"       element={<SupportPage />} />
@@ -138,10 +151,10 @@ export default function App() {
             <Route index element={<Navigate to="/hr/dashboard" replace />} />
             <Route path="dashboard"  element={<HRDashboardPage />} />
             <Route path="employees"  element={<EmployeesPage />} />
-            <Route path="attendance" element={<AttendancePage />} />
-            <Route path="leaves"     element={<LeaveManagementPage />} />
-            <Route path="approvals"  element={<ApprovalsPage />} />
-            <Route path="payroll"    element={<PayrollPage />} />
+            <Route path="attendance" element={guarded(<AttendancePage />, 'Attendance — View', 'Attendance')} />
+            <Route path="leaves"     element={guarded(<LeaveManagementPage />, 'Approvals — View', 'Leave Management')} />
+            <Route path="approvals"  element={guarded(<ApprovalsPage />, 'Approvals — View', 'Leave Management')} />
+            <Route path="payroll"    element={guarded(<PayrollPage />, 'Payroll — View', 'Payroll')} />
             <Route path="documents"  element={<DocumentPoliciesPage />} />
             <Route path="settings"   element={<HRSettingsPage />} />
           </Route>
@@ -149,36 +162,37 @@ export default function App() {
           {/* Company Admin routes */}
           <Route path="/company-admin" element={<CompanyAdminLayout />}>
             <Route index element={<Navigate to="/company-admin/dashboard" replace />} />
-            <Route path="dashboard"  element={<CADashboardPage />} />
-            <Route path="attendance" element={<CAAttendancePage />} />
-            <Route path="workforce"  element={<CAWorkforcePage />} />
+            <Route path="dashboard"  element={guarded(<CADashboardPage />, 'Dashboard')} />
+            <Route path="attendance" element={guarded(<CAAttendancePage />, 'Attendance — View', 'Attendance')} />
+            <Route path="workforce"  element={guarded(<CAWorkforcePage />, 'Workforce — View', 'Employee Management')} />
             <Route path="payroll" element={<Navigate to="/company-admin/payroll/overview" replace />} />
-            <Route path="payroll/overview"         element={<CAPayrollOverviewPage />} />
-            <Route path="payroll/run"              element={<CARunPayrollPage />} />
-            <Route path="payroll/salary-structure" element={<CASalaryStructurePage />} />
-            <Route path="payroll/payslips"         element={<CAPayslipsPage />} />
-            <Route path="payroll/reports"          element={<CAPayrollReportsPage />} />
-            <Route path="payroll/compliance"       element={<CACompliancePage />} />
-            <Route path="approvals"  element={<CAApprovalsPage />} />
-            <Route path="reports"    element={<CAReportsPage />} />
-            <Route path="users"      element={<CAUsersPage />} />
-            <Route path="departments" element={<CADepartmentsPage />} />
+            <Route path="payroll/overview"         element={guarded(<CAPayrollOverviewPage />, 'Payroll — View', 'Payroll')} />
+            <Route path="payroll/run"              element={guarded(<CARunPayrollPage />, 'Payroll — Process', 'Payroll')} />
+            <Route path="payroll/salary-structure" element={guarded(<CASalaryStructurePage />, 'Payroll — View', 'Payroll')} />
+            <Route path="payroll/payslips"         element={guarded(<CAPayslipsPage />, 'Payroll — View', 'Payroll')} />
+            <Route path="payroll/reports"          element={guarded(<CAPayrollReportsPage />, 'Reports — View', 'Reports & Analytics')} />
+            <Route path="payroll/compliance"       element={guarded(<CACompliancePage />, 'Payroll — View', 'Payroll')} />
+            <Route path="approvals"  element={guarded(<CAApprovalsPage />, 'Approvals — View', 'Leave Management')} />
+            <Route path="reports"    element={guarded(<CAReportsPage />, 'Reports — View', 'Reports & Analytics')} />
+            <Route path="users"      element={guarded(<CAUsersPage />, 'Workforce — View', 'Employee Management')} />
+            <Route path="departments" element={guarded(<CADepartmentsPage />, 'Workforce — View', 'Employee Management')} />
             <Route path="activity"   element={<CAActivityPage />} />
             <Route path="modules"    element={<CAModulesPage />} />
             <Route path="settings/company"   element={<CASettingsPage />} />
             <Route path="settings/roles"     element={<CARolesPage />} />
             <Route path="settings/workflows" element={<CAWorkflowsPage />} />
+            <Route path="support" element={<CASupportPage />} />
           </Route>
 
           {/* Employee routes */}
           <Route path="/employee" element={<EmployeeLayout />}>
             <Route index element={<Navigate to="/employee/dashboard" replace />} />
             <Route path="dashboard"  element={<EmployeeDashboardPage />} />
-            <Route path="attendance" element={<MyAttendancePage />} />
-            <Route path="leaves"     element={<MyLeavePage />} />
-            <Route path="payslips"   element={<MyPayslipsPage />} />
-            <Route path="expenses"   element={<MyExpensesPage />} />
-            <Route path="documents"  element={<DocumentsPage />} />
+            <Route path="attendance" element={guarded(<MyAttendancePage />, undefined, 'Attendance')} />
+            <Route path="leaves"     element={guarded(<MyLeavePage />, undefined, 'Leave Management')} />
+            <Route path="payslips"   element={guarded(<MyPayslipsPage />, undefined, 'Payroll')} />
+            <Route path="expenses"   element={guarded(<MyExpensesPage />, undefined, 'Expense Management')} />
+            <Route path="documents"  element={guarded(<DocumentsPage />, undefined, 'Document Management')} />
             <Route path="settings"   element={<EmployeeSettingsPage />} />
           </Route>
 
@@ -186,9 +200,9 @@ export default function App() {
           <Route path="/finance" element={<FinanceLayout />}>
             <Route index element={<Navigate to="/finance/dashboard" replace />} />
             <Route path="dashboard"        element={<FinanceDashboardPage />} />
-            <Route path="payroll"          element={<FinancePayrollPage />} />
-            <Route path="salary-structure" element={<SalaryStructurePage />} />
-            <Route path="payslips"         element={<PayslipsPage />} />
+            <Route path="payroll"          element={guarded(<FinancePayrollPage />, 'Payroll — View', 'Payroll')} />
+            <Route path="salary-structure" element={guarded(<SalaryStructurePage />, 'Payroll — View', 'Payroll')} />
+            <Route path="payslips"         element={guarded(<PayslipsPage />, 'Payroll — View', 'Payroll')} />
             <Route path="expenses"         element={<ExpensesPage />} />
             <Route path="reports"          element={<FinanceReportsPage />} />
             <Route path="settings"         element={<FinanceSettingsPage />} />
@@ -198,10 +212,10 @@ export default function App() {
           <Route path="/manager" element={<ManagerLayout />}>
             <Route index element={<Navigate to="/manager/dashboard" replace />} />
             <Route path="dashboard"  element={<ManagerDashboardPage />} />
-            <Route path="workforce"  element={<WorkforcePage />} />
-            <Route path="approvals"  element={<ManagerApprovalsPage />} />
-            <Route path="attendance" element={<ManagerAttendancePage />} />
-            <Route path="reports"    element={<ManagerReportsPage />} />
+            <Route path="workforce"  element={guarded(<WorkforcePage />, 'Workforce — View', 'Employee Management')} />
+            <Route path="approvals"  element={guarded(<ManagerApprovalsPage />, 'Approvals — View', 'Leave Management')} />
+            <Route path="attendance" element={guarded(<ManagerAttendancePage />, 'Attendance — View', 'Attendance')} />
+            <Route path="reports"    element={guarded(<ManagerReportsPage />, 'Reports — View', 'Reports & Analytics')} />
             <Route path="settings"   element={<ManagerSettingsPage />} />
           </Route>
 
@@ -209,10 +223,10 @@ export default function App() {
           <Route path="/supervisor" element={<SupervisorLayout />}>
             <Route index element={<Navigate to="/supervisor/dashboard" replace />} />
             <Route path="dashboard"  element={<SupervisorDashboardPage />} />
-            <Route path="workforce"  element={<SupervisorWorkforcePage />} />
-            <Route path="attendance" element={<SupervisorAttendancePage />} />
-            <Route path="shifts"     element={<ShiftManagementPage />} />
-            <Route path="approvals"  element={<SupervisorApprovalsPage />} />
+            <Route path="workforce"  element={guarded(<SupervisorWorkforcePage />, 'Workforce — View', 'Employee Management')} />
+            <Route path="attendance" element={guarded(<SupervisorAttendancePage />, 'Attendance — View', 'Attendance')} />
+            <Route path="shifts"     element={guarded(<ShiftManagementPage />, undefined, 'Shift Management')} />
+            <Route path="approvals"  element={guarded(<SupervisorApprovalsPage />, 'Approvals — View', 'Leave Management')} />
             <Route path="settings"   element={<SupervisorSettingsPage />} />
           </Route>
 

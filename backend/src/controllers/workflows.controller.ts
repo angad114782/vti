@@ -6,7 +6,11 @@ import Employee from '../models/Employee';
 import LeaveRequest from '../models/LeaveRequest';
 import Payslip from '../models/Payslip';
 import Attendance from '../models/Attendance';
+import Expense from '../models/Expense';
+import Approval from '../models/Approval';
+import User from '../models/User';
 import { getWorkflowConfig } from '../utils/workflow';
+import { validateId } from '../utils/validate';
 
 // GET /company-admin/workflows
 export const getWorkflows = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -53,10 +57,18 @@ export const saveWorkflow = async (req: AuthRequest, res: Response): Promise<voi
       return;
     }
 
+    if (!Array.isArray(steps) || !steps.length || steps.some((step) => !step.role || !step.action || !Number.isInteger(step.order) || step.order < 1)) {
+      res.status(400).json({ message: 'Workflow must contain valid ordered steps' });
+      return;
+    }
+    const existing = await Workflow.findOne({ companyId: companyId as any, type: type as any }).select('version').lean();
     const workflow = await Workflow.findOneAndUpdate(
       { companyId: companyId as any, type: type as any },
-      { companyId: companyId as any, type, steps, autoEscalate, escalateHours } as any,
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      {
+        $set: { companyId: companyId as any, type, steps, autoEscalate: Boolean(autoEscalate), escalateHours: Number(escalateHours) || 24, isActive: true },
+        $inc: { version: 1 },
+      } as any,
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
     );
 
     res.json(workflow);
@@ -64,6 +76,23 @@ export const saveWorkflow = async (req: AuthRequest, res: Response): Promise<voi
     console.error(err);
     res.status(500).json({ message: 'Internal server error' });
   }
+};
+
+export const delegateWorkflowRequest = async (req: AuthRequest, res: Response): Promise<void> => {
+  const companyId = req.user!.companyId;
+  const { type, id } = req.params as { type: string; id: string };
+  const { userId } = req.body as { userId?: string };
+  if (!companyId || !['leave', 'expense', 'correction'].includes(type) || !userId) { res.status(400).json({ message: 'Valid workflow type and target userId are required' }); return; }
+  validateId(id); validateId(userId);
+  const target = await User.findOne({ _id: userId, companyId, isActive: true }).select('_id role name').lean();
+  if (!target) { res.status(404).json({ message: 'Delegated user not found in this company' }); return; }
+  const Model: any = type === 'leave' ? LeaveRequest : type === 'expense' ? Expense : Approval;
+  const request = await Model.findOne({ _id: id, companyId, status: 'Pending' });
+  if (!request) { res.status(404).json({ message: 'Pending workflow request not found' }); return; }
+  if (target.role !== request.pendingRole) { res.status(400).json({ message: `Delegate must have the ${request.pendingRole} role` }); return; }
+  request.delegatedTo = target._id;
+  await request.save();
+  res.json({ message: 'Workflow request delegated', delegatedTo: target });
 };
 
 // ── Reports aggregations ──────────────────────────────────────────────────────

@@ -185,7 +185,7 @@ export default function CAPayrollReportsPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
             {recentDownloads.length === 0 && <p style={{ fontSize: '12px', color: '#94a3b8' }}>No reports downloaded in this session.</p>}
             {recentDownloads.map((r, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: i < RECENT_DOWNLOADS.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: i < recentDownloads.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Clock size={12} color="#94a3b8" />
                   <div>

@@ -8,9 +8,16 @@ const expenseSchema = new Schema({
   description: String,
   receiptUrl: String,
   status: { type: String, default: 'Pending' },
+  version: { type: Number, default: 0 },
   workflowType: { type: String, default: 'expense' },
   workflowStep: { type: Number, default: 1 },
   pendingRole: { type: String, default: 'MANAGER' },
+  requesterUserId: { type: Schema.Types.ObjectId, ref: 'User' },
+  workflowVersion: { type: Number, default: 1 },
+  workflowSnapshot: { type: Schema.Types.Mixed },
+  approvalDueAt: Date,
+  delegatedTo: { type: Schema.Types.ObjectId, ref: 'User' },
+  escalatedAt: Date,
 }, { timestamps: true });
 
 expenseSchema.index({ companyId: 1, createdAt: -1 });

@@ -25,7 +25,7 @@ export default function CAAttendancePage() {
   const [search, setSearch]           = useState('');
   const [monthFilter, setMonthFilter] = useState(String(new Date().getMonth() + 1));
   const [yearFilter, setYearFilter]   = useState(String(new Date().getFullYear()));
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const { data: overviewData, isLoading: overviewLoading } = useHrAttendance();
 

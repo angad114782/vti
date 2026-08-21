@@ -45,12 +45,6 @@ export default function ShiftManagementPage() {
 
   const createShift = useCreateShift();
 
-  const selectedDate = date === 'Today'
-    ? new Date()
-    : date === 'Tomorrow'
-      ? new Date(Date.now() + 24 * 60 * 60 * 1000)
-      : new Date();
-
   const shiftsParams = useMemo(() => {
     const params: Record<string, string> = { date: form.date };
     if (department !== 'All Departments') params.department = department;

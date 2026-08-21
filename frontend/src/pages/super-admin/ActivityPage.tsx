@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { activityApi, type ActivityLog } from '../../api/activity';
 import { useSaActivity } from '../../hooks/queries/useSaQueries';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import {
   Activity, CheckCircle2, XCircle, Calendar,
   Search, X, ChevronLeft, ChevronRight,
@@ -42,8 +43,8 @@ const avatarColors = [
   { bg: '#f0f9ff', color: '#0ea5e9' }, { bg: '#f0fdf4', color: '#10b981' },
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
 ];
-const getAvatarColor = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length];
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAvatarColor = (name?: string) => avatarColors[(name ?? 'A').charCodeAt(0) % avatarColors.length];
+const initials = (name?: string) => (name ?? 'System').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
 const fmtTime = (d: string) => {
   const dt = new Date(d);
@@ -103,7 +104,7 @@ function LogModal({ log, onClose }: { log: ActivityLog; onClose: () => void }) {
           {row('User', log.user?.name ?? '—')}
           {log.user && row('Role', rm?.label ?? log.user.role)}
           {row('Email', log.user?.email ?? '—')}
-          {row('Company', log.company?.name ?? '—')}
+          {row('Company', log.company ? `${log.company.name} (${log.company.companyCode})` : '—')}
           {row('IP Address', log.ipAddress ?? '—')}
           {row('Timestamp', fmtFull(log.createdAt))}
         </div>
@@ -138,9 +139,10 @@ export default function ActivityPage() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [page,         setPage]         = useState(1);
   const [viewLog,      setViewLog]      = useState<ActivityLog | null>(null);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const actParams: Record<string, string> = { type: tab, page: String(page), limit: '10' };
-  if (search) actParams.search = search;
+  if (debouncedSearch.trim().length >= 2) actParams.search = debouncedSearch.trim();
   if (companyFilter !== 'ALL') actParams.company = companyFilter;
   if (roleFilter !== 'ALL') actParams.role = roleFilter;
   if (moduleFilter !== 'ALL') actParams.module = moduleFilter;
@@ -306,6 +308,7 @@ export default function ActivityPage() {
                       {/* Company */}
                       <td style={{ padding: '13px 20px' }}>
                         <p style={{ fontSize: '13px', color: '#374151', whiteSpace: 'nowrap' }}>{log.company?.name ?? '—'}</p>
+                        {log.company && <p style={{ fontSize: '10px', color: '#94a3b8' }}>{log.company.companyCode}</p>}
                       </td>
                       {/* Action */}
                       <td style={{ padding: '13px 20px' }}>

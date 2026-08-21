@@ -1,8 +1,9 @@
 import { Outlet, Navigate, useNavigate } from 'react-router-dom';
-import { Search, Bell, RefreshCw, ChevronDown } from 'lucide-react';
+import { Bell, RefreshCw, ChevronDown } from 'lucide-react';
 import SupervisorSidebar from './SupervisorSidebar';
 import { useAuthStore } from '../../store/authStore';
 import { ErrorBoundary } from '../ErrorBoundary';
+import GlobalSearch from '../search/GlobalSearch';
 
 const MONTH = new Date().toLocaleString('default', { month: 'long', year: 'numeric' });
 
@@ -13,11 +14,9 @@ function TopBar() {
 
   return (
     <div style={{ height: '60px', minHeight: '60px', backgroundColor: 'white', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', padding: '0 24px', gap: '16px' }}>
-      <div style={{ position: 'relative', flex: 1, maxWidth: '320px' }}>
-        <Search size={14} style={{ position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-        <input placeholder="Search..." style={{ width: '100%', paddingLeft: '34px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
-      </div>
+      <GlobalSearch />
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <span style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>{user?.company?.name ?? 'Company'}{user?.company?.companyCode ? ` (${user.company.companyCode})` : ''}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', border: '1.5px solid #e2e8f0', borderRadius: '8px', cursor: 'pointer' }}>
           <span style={{ fontSize: '13px', fontWeight: 600, color: '#374151' }}>{MONTH}</span>
           <ChevronDown size={13} color="#94a3b8" />

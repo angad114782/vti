@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { toast } from 'sonner';
-import { type Document } from '../../api/hr';
+import { hrApi, type Document } from '../../api/hr';
 import { Search, Upload, Plus, Eye, Download, Edit2, Trash2, Loader2, X, ChevronDown } from 'lucide-react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import PaginationBar from '../../components/data/Pagination';
@@ -142,7 +142,7 @@ export default function DocumentPoliciesPage() {
   const [page,           setPage]           = useState(1);
   const limit = 20;
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const params: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) params.search = debouncedSearch;
@@ -156,6 +156,17 @@ export default function DocumentPoliciesPage() {
 
   const handleSearchChange   = (v: string) => { setSearch(v); setPage(1); };
   const handleCategoryChange = (v: string) => { setCategoryFilter(v); setPage(1); };
+  const openDocument = async (doc: Document, download = false) => {
+    if (!doc.fileUrl) return;
+    const { data } = await hrApi.downloadDocument(doc.fileUrl);
+    const url = URL.createObjectURL(data);
+    if (download) {
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = doc.name; anchor.click();
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
 
   const handleDelete = (id: string) => {
     deleteDocument.mutate(id, {
@@ -225,8 +236,8 @@ export default function DocumentPoliciesPage() {
                       <td style={{ padding: '13px 18px' }}><span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: '#dbeafe', color: '#1d4ed8' }}>{d.visibility}</span></td>
                       <td style={{ padding: '13px 18px' }}>
                         <div style={{ display: 'flex', gap: '6px' }}>
-                          <a href={d.fileUrl || '#'} target="_blank" rel="noopener noreferrer" style={{ pointerEvents: d.fileUrl ? 'auto' : 'none', opacity: d.fileUrl ? 1 : 0.4, width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }} title="View document"><Eye size={13} /></a>
-                          <a href={d.fileUrl ? `${d.fileUrl}?download=true` : '#'} download={d.name} style={{ pointerEvents: d.fileUrl ? 'auto' : 'none', opacity: d.fileUrl ? 1 : 0.4, width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }} title="Download document"><Download size={13} /></a>
+                          <button onClick={() => void openDocument(d)} disabled={!d.fileUrl} style={{ opacity: d.fileUrl ? 1 : 0.4, width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: d.fileUrl ? 'pointer' : 'not-allowed', color: '#64748b' }} title="View document"><Eye size={13} /></button>
+                          <button onClick={() => void openDocument(d, true)} disabled={!d.fileUrl} style={{ opacity: d.fileUrl ? 1 : 0.4, width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: d.fileUrl ? 'pointer' : 'not-allowed', color: '#64748b' }} title="Download document"><Download size={13} /></button>
                           <button style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'not-allowed', opacity: 0.4, color: '#64748b' }}><Edit2 size={13} /></button>
                           <button onClick={() => handleDelete(d.id)} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #fecaca', backgroundColor: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#b91c1c' }}><Trash2 size={13} /></button>
                         </div>

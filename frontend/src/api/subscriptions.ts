@@ -9,7 +9,7 @@ export interface Subscription {
   startDate: string;
   endDate: string;
   isActive: boolean;
-  company: { id: string; name: string; industry?: string; plan: string };
+  company: { id: string; name: string; companyCode?: string; industry?: string; plan: string };
 }
 
 export interface PlanData {

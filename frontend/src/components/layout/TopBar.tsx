@@ -1,89 +1,18 @@
-import { Bell, RefreshCw, Search } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Bell, RefreshCw } from 'lucide-react';
+import { io } from 'socket.io-client';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
+import GlobalSearch from '../search/GlobalSearch';
+import { notificationsApi, type AppNotification } from '../../api/notifications';
 
 export default function TopBar() {
-  const { user } = useAuthStore();
-  const today = new Date().toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'long', year: 'numeric',
-  });
-
-  return (
-    <header style={{
-      height: '60px',
-      backgroundColor: 'white',
-      borderBottom: '1px solid #e2e8f0',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      padding: '0 24px',
-      flexShrink: 0,
-    }}>
-      {/* Search */}
-      <div style={{ position: 'relative', width: '280px' }}>
-        <Search size={14} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-        <input
-          type="text"
-          placeholder="Search..."
-          style={{
-            width: '100%',
-            paddingLeft: '36px',
-            paddingRight: '12px',
-            paddingTop: '8px',
-            paddingBottom: '8px',
-            border: '1.5px solid #e2e8f0',
-            borderRadius: '8px',
-            fontSize: '13px',
-            color: '#0f172a',
-            outline: 'none',
-            backgroundColor: '#f8fafc',
-            fontFamily: 'Inter, sans-serif',
-          }}
-        />
-      </div>
-
-      {/* Right */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <span style={{ fontSize: '13px', color: '#94a3b8', marginRight: '8px' }}>{today}</span>
-
-        <button style={{
-          width: '36px', height: '36px', border: '1px solid #e2e8f0', borderRadius: '8px',
-          backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', color: '#64748b',
-        }}>
-          <RefreshCw size={15} />
-        </button>
-
-        <button style={{
-          width: '36px', height: '36px', border: '1px solid #e2e8f0', borderRadius: '8px',
-          backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', color: '#64748b', position: 'relative',
-        }}>
-          <Bell size={15} />
-          <span style={{
-            position: 'absolute', top: '7px', right: '7px',
-            width: '7px', height: '7px', backgroundColor: '#ef4444',
-            borderRadius: '50%', border: '1.5px solid white',
-          }} />
-        </button>
-
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '10px',
-          paddingLeft: '12px', borderLeft: '1px solid #e2e8f0', marginLeft: '4px',
-        }}>
-          <div style={{
-            width: '34px', height: '34px', borderRadius: '50%',
-            backgroundColor: '#dcfce7',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#15803d', fontWeight: 700, fontSize: '13px',
-          }}>
-            {user?.name?.charAt(0) ?? 'A'}
-          </div>
-          <div>
-            <p style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a', lineHeight: 1.2 }}>{user?.name}</p>
-            <p style={{ fontSize: '11px', color: '#94a3b8' }}>Super Admin</p>
-          </div>
-        </div>
-      </div>
-    </header>
-  );
+  const { user } = useAuthStore(); const navigate = useNavigate(); const location = useLocation(); const [open, setOpen] = useState(false); const [items, setItems] = useState<AppNotification[]>([]); const [unread, setUnread] = useState(0);
+  const currentTicketId = new URLSearchParams(location.search).get('ticket');
+  const isCurrentTicket = (notification: AppNotification) => notification.entityType === 'SupportTicket' && Boolean(currentTicketId && notification.entityId === currentTicketId);
+  const load = () => void notificationsApi.list().then(({ data }) => { const visible = data.notifications.filter((notification) => !notification.readAt && !isCurrentTicket(notification)); setItems(visible); setUnread(visible.length); }).catch(() => undefined);
+  useEffect(() => { load(); const socket = io('/', { path: '/socket.io', auth: { token: localStorage.getItem('accessToken') } }); socket.on('notification:new', (notification: AppNotification) => { if (isCurrentTicket(notification) || notification.readAt) { if (isCurrentTicket(notification)) void notificationsApi.markRead(notification.id); return; } setItems((current) => [notification, ...current.filter((item) => item.id !== notification.id)]); setUnread((count) => count + 1); }); return () => { socket.disconnect(); }; }, [currentTicketId]);
+  const choose = async (notification: AppNotification) => { if (!notification.readAt) { try { await notificationsApi.markRead(notification.id); } catch { /* keep navigation responsive */ } setUnread((count) => Math.max(0, count - 1)); } setItems((current) => current.filter((item) => item.id !== notification.id)); setOpen(false); if (notification.entityType === 'SupportTicket' && notification.entityId) navigate(`/support?ticket=${notification.entityId}`); };
+  return <header style={{ height:'60px',background:'white',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 24px',flexShrink:0 }}><GlobalSearch /><div style={{display:'flex',alignItems:'center',gap:8}}><button onClick={load} style={icon}><RefreshCw size={15}/></button><div style={{position:'relative'}}><button onClick={() => setOpen(!open)} style={icon}><Bell size={15}/>{unread > 0 && <span style={{position:'absolute',top:4,right:4,minWidth:14,height:14,borderRadius:9,background:'#ef4444',color:'white',fontSize:9,fontWeight:800,display:'grid',placeItems:'center',border:'1px solid white'}}>{unread > 9 ? '9+' : unread}</span>}</button>{open && <div style={{position:'absolute',right:0,top:42,width:360,maxHeight:420,overflowY:'auto',zIndex:1000,background:'white',border:'1px solid #e2e8f0',boxShadow:'0 12px 28px rgba(15,23,42,.16)',borderRadius:12}}><div style={{padding:'12px 14px',fontWeight:700,fontSize:13,borderBottom:'1px solid #e2e8f0'}}>Notifications</div>{items.length ? items.map((n) => <button key={n.id} onClick={() => choose(n)} style={{width:'100%',border:0,borderBottom:'1px solid #f1f5f9',background:n.readAt?'white':'#f0fdfa',padding:'12px 14px',textAlign:'left',cursor:'pointer'}}><b style={{fontSize:12,color:'#0f172a'}}>{n.title}</b><p style={{margin:'3px 0 0',fontSize:11,color:'#64748b',lineHeight:1.4}}>{n.message}</p></button>) : <p style={{padding:20,textAlign:'center',color:'#94a3b8',fontSize:12}}>No notifications</p>}</div>}</div><div style={{display:'flex',alignItems:'center',gap:10,paddingLeft:12,borderLeft:'1px solid #e2e8f0'}}><div style={{width:34,height:34,borderRadius:'50%',background:'#dcfce7',display:'grid',placeItems:'center',color:'#15803d',fontWeight:700,fontSize:13}}>{user?.name?.charAt(0) ?? 'A'}</div><div><p style={{fontSize:13,fontWeight:600,color:'#0f172a',lineHeight:1.2}}>{user?.name}</p><p style={{fontSize:11,color:'#94a3b8'}}>Super Admin</p></div></div></div></header>;
 }
+const icon: React.CSSProperties={width:36,height:36,border:'1px solid #e2e8f0',borderRadius:8,background:'white',cursor:'pointer',display:'grid',placeItems:'center',color:'#64748b'};

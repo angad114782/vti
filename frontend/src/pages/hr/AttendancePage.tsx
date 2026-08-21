@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { type AttendanceRecord } from '../../api/hr';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -132,13 +133,20 @@ function AddRecordModal({ onClose }: { onClose: () => void }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function AttendancePage() {
-  const [tab, setTab] = useState<'overview' | 'records'>('overview');
-  const [page, setPage]             = useState(1);
-  const [search, setSearch]         = useState('');
-  const [monthFilter, setMonthFilter] = useState(String(new Date().getMonth() + 1));
-  const [yearFilter, setYearFilter]   = useState(String(new Date().getFullYear()));
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const [urlParams, setUrlParams] = useSearchParams();
+  const tab = urlParams.get('tab') === 'records' ? 'records' : 'overview';
+  const page = Math.max(1, Number(urlParams.get('page') ?? '1') || 1);
+  const search = urlParams.get('search') ?? '';
+  const monthFilter = urlParams.get('month') ?? String(new Date().getMonth() + 1);
+  const yearFilter = urlParams.get('year') ?? String(new Date().getFullYear());
+  const debouncedSearch = useDebouncedValue(search, 500);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  const updateUrl = (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(urlParams);
+    Object.entries(changes).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
+    setUrlParams(next, { replace: true });
+  };
 
   const { data: overviewData, isLoading: overviewLoading } = useHrAttendance();
 
@@ -148,7 +156,7 @@ export default function AttendancePage() {
   const records: AttendanceRecord[] = recordsData?.records ?? [];
   const pagination = recordsData?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
 
-  const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
+  const handleSearchChange = (v: string) => updateUrl({ search: v || null, page: '1' });
 
   const s = overviewData?.stats;
   const statCards = [
@@ -179,7 +187,7 @@ export default function AttendancePage() {
       {/* Tab switcher */}
       <div style={{ display: 'flex', backgroundColor: 'white', borderRadius: '10px', border: '1px solid #e2e8f0', padding: '4px', gap: '2px', width: 'fit-content' }}>
         {[['overview', 'Overview'], ['records', 'Daily Records']].map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key as 'overview' | 'records')} style={{ padding: '8px 18px', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif', backgroundColor: tab === key ? '#0d7470' : 'transparent', color: tab === key ? 'white' : '#64748b', transition: 'all 0.15s' }}>{label}</button>
+          <button key={key} onClick={() => updateUrl({ tab: key === 'overview' ? null : key, page: '1' })} style={{ padding: '8px 18px', border: 'none', borderRadius: '7px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, fontFamily: 'Inter, sans-serif', backgroundColor: tab === key ? '#0d7470' : 'transparent', color: tab === key ? 'white' : '#64748b', transition: 'all 0.15s' }}>{label}</button>
         ))}
       </div>
 
@@ -245,10 +253,10 @@ export default function AttendancePage() {
               <Search size={13} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
               <input value={search} onChange={(e) => handleSearchChange(e.target.value)} placeholder="Search by employee name..." style={{ width: '100%', paddingLeft: '32px', paddingRight: '10px', paddingTop: '7px', paddingBottom: '7px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
             </div>
-            <select value={monthFilter} onChange={(e) => { setMonthFilter(e.target.value); setPage(1); }} style={{ padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#374151', backgroundColor: 'white', cursor: 'pointer', outline: 'none', fontFamily: 'Inter, sans-serif' }}>
+            <select value={monthFilter} onChange={(e) => updateUrl({ month: e.target.value, page: '1' })} style={{ padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#374151', backgroundColor: 'white', cursor: 'pointer', outline: 'none', fontFamily: 'Inter, sans-serif' }}>
               {MONTHS.map((m, i) => <option key={m} value={String(i + 1)}>{m}</option>)}
             </select>
-            <select value={yearFilter} onChange={(e) => { setYearFilter(e.target.value); setPage(1); }} style={{ padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#374151', backgroundColor: 'white', cursor: 'pointer', outline: 'none', fontFamily: 'Inter, sans-serif' }}>
+            <select value={yearFilter} onChange={(e) => updateUrl({ year: e.target.value, page: '1' })} style={{ padding: '7px 10px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#374151', backgroundColor: 'white', cursor: 'pointer', outline: 'none', fontFamily: 'Inter, sans-serif' }}>
               <option>2026</option><option>2025</option>
             </select>
           </div>
@@ -300,7 +308,7 @@ export default function AttendancePage() {
             </div>
           )}
 
-          <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={20} onPageChange={(p) => setPage(p)} />
+          <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={20} onPageChange={(p) => updateUrl({ page: String(p) })} />
         </div>
       )}
 

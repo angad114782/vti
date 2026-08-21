@@ -2,9 +2,11 @@ import { useState } from 'react';
 import type { MyPayslip } from '../../api/employee';
 import { Download, Loader2, X } from 'lucide-react';
 import { useMyPayslips } from '../../hooks/queries/useEmployeeQueries';
+import { employeeApi } from '../../api/employee';
 
 const STATUS_META: Record<string, { bg: string; color: string }> = {
   Paid:       { bg: '#dcfce7', color: '#15803d' },
+  Finalized:  { bg: '#dcfce7', color: '#15803d' },
   Processing: { bg: '#fef9c3', color: '#854d0e' },
   Pending:    { bg: '#f1f5f9', color: '#475569' },
 };
@@ -17,8 +19,13 @@ export default function MyPayslipsPage() {
   const { data, isLoading: loading } = useMyPayslips();
   const payslips: MyPayslip[] = data ?? [];
 
-  const latestPaid = payslips.find((p) => p.status === 'Paid');
-  const totalYTD   = payslips.filter((p) => p.status === 'Paid').reduce((s, p) => s + p.netPay, 0);
+  const finalized = (p: MyPayslip) => ['Finalized', 'Paid'].includes(p.status);
+  const latestPaid = payslips.find(finalized);
+  const totalYTD   = payslips.filter(finalized).reduce((s, p) => s + p.netPay, 0);
+  const download = async (id: string, name: string) => {
+    const { data } = await employeeApi.downloadPayslip(id);
+    const url = URL.createObjectURL(data); const a = document.createElement('a'); a.href = url; a.download = `${name}.pdf`; a.click(); URL.revokeObjectURL(url);
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -37,12 +44,12 @@ export default function MyPayslipsPage() {
         <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
           <p style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Total Earned YTD</p>
           <p style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', marginTop: '6px' }}>{fmtPay(totalYTD)}</p>
-          <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>{payslips.filter((p) => p.status === 'Paid').length} payslip(s) paid</p>
+          <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>{payslips.filter(finalized).length} finalized payslip(s)</p>
         </div>
         <div style={{ backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', padding: '18px 20px' }}>
           <p style={{ fontSize: '11px', fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.3px' }}>Total Payslips</p>
           <p style={{ fontSize: '24px', fontWeight: 800, color: '#0f172a', marginTop: '6px' }}>{payslips.length}</p>
-          <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>{payslips.filter((p) => p.status === 'Paid').length} paid</p>
+          <p style={{ fontSize: '11px', color: '#94a3b8', marginTop: '4px' }}>{payslips.filter(finalized).length} finalized</p>
         </div>
       </div>
 
@@ -94,7 +101,7 @@ export default function MyPayslipsPage() {
                     <td style={{ padding: '14px 20px' }}><span style={{ fontSize: '14px', fontWeight: 800, color: '#0f172a' }}>{fmtPay(p.netPay)}</span></td>
                     <td style={{ padding: '14px 20px' }}><span style={{ padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 600, backgroundColor: sm.bg, color: sm.color }}>{p.status}</span></td>
                     <td style={{ padding: '14px 20px' }}>
-                      <button onClick={(e) => e.stopPropagation()} disabled={p.status !== 'Paid'} title={p.status !== 'Paid' ? 'Available once paid' : 'Download payslip'} style={{ width: '30px', height: '30px', borderRadius: '7px', border: 'none', backgroundColor: p.status === 'Paid' ? '#0d7470' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: p.status === 'Paid' ? 'pointer' : 'not-allowed', opacity: p.status !== 'Paid' ? 0.5 : 1 }}><Download size={13} color={p.status === 'Paid' ? 'white' : '#94a3b8'} /></button>
+                      <button onClick={(e) => { e.stopPropagation(); if (finalized(p)) void download(p.id, p.payslipId); }} disabled={!finalized(p)} title={!finalized(p) ? 'Available once finalized' : 'Download payslip'} style={{ width: '30px', height: '30px', borderRadius: '7px', border: 'none', backgroundColor: finalized(p) ? '#0d7470' : '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: finalized(p) ? 'pointer' : 'not-allowed', opacity: finalized(p) ? 1 : 0.5 }}><Download size={13} color={finalized(p) ? 'white' : '#94a3b8'} /></button>
                     </td>
                   </tr>
                 );

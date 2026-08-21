@@ -1,12 +1,13 @@
 import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { type Employee } from '../../api/hr';
 import { Search, Plus, Edit2, X, ChevronDown, Loader2 } from 'lucide-react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
-import PaginationBar from '../../components/data/Pagination';
 import { extractError } from '../../utils/errorUtils';
 import { useEmployees } from '../../hooks/queries/useHrQueries';
 import { useCreateEmployee, useUpdateEmployee } from '../../hooks/mutations/useHrMutations';
+import PaginationBar from '../../components/data/Pagination';
 
 const DEPARTMENTS = ['Engineering', 'Sales', 'Marketing', 'HR', 'Design', 'Finance'];
 const SHIFTS = ['Morning', 'Evening', 'Night'];
@@ -16,8 +17,8 @@ const avatarColors = [
   { bg: '#f0f9ff', color: '#0ea5e9' }, { bg: '#f0fdf4', color: '#10b981' },
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'H').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'User').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 const fmtDate = (d: string | null) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 const fmtCurrency = (n: number | null) => n ? `₹${(n / 100000).toFixed(1)}L` : '—';
 
@@ -154,13 +155,14 @@ function EmployeeModal({ emp, onClose }: { emp?: Employee; onClose: () => void }
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function EmployeesPage() {
-  const [search, setSearch] = useState('');
-  const [deptFilter, setDeptFilter] = useState('ALL');
-  const [page, setPage] = useState(1);
+  const [urlParams, setUrlParams] = useSearchParams();
+  const search = urlParams.get('search') ?? '';
+  const deptFilter = urlParams.get('department') ?? 'ALL';
+  const page = Math.max(1, Number(urlParams.get('page') ?? '1') || 1);
   const limit = 20;
   const [modal, setModal] = useState<{ open: boolean; emp?: Employee }>({ open: false });
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const params: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) params.search = debouncedSearch;
@@ -169,10 +171,15 @@ export default function EmployeesPage() {
   const { data, isLoading } = useEmployees(params);
   const employees = data?.employees ?? [];
   const stats = data?.stats ?? { total: 0, active: 0, inactive: 0, departments: 0 };
-  const pagination = data?.pagination ?? { total: 0, page: 1, limit: 20, totalPages: 1 };
+  const pagination = data?.pagination ?? { page, totalPages: 1, total: stats.total, limit };
 
-  const handleSearchChange = (value: string) => { setSearch(value); setPage(1); };
-  const handleDeptChange = (dept: string) => { setDeptFilter(dept); setPage(1); };
+  const updateUrl = (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(urlParams);
+    Object.entries(changes).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
+    setUrlParams(next, { replace: true });
+  };
+  const handleSearchChange = (value: string) => updateUrl({ search: value || null, page: '1' });
+  const handleDeptChange = (dept: string) => updateUrl({ department: dept === 'ALL' ? null : dept, page: '1' });
 
 
   return (
@@ -255,6 +262,8 @@ export default function EmployeesPage() {
           <span style={{ fontSize: '13px', color: '#64748b' }}>Total: <strong>{stats.total}</strong> employees • Active: <strong>{stats.active}</strong></span>
         </div>
       </div>
+
+      <PaginationBar page={pagination.page} totalPages={pagination.totalPages} total={pagination.total} limit={limit} onPageChange={(nextPage) => updateUrl({ page: String(nextPage) })} />
 
       {modal.open && <EmployeeModal emp={modal.emp} onClose={() => setModal({ open: false })} />}
     </div>

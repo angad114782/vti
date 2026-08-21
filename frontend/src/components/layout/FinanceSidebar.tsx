@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, CreditCard, Landmark, FileText, Receipt, BarChart2, Settings, LogOut } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import { useAccess } from '../../hooks/queries/useAccess';
 
 const NAV = [
   { to: '/finance/dashboard',         label: 'Dashboard',       Icon: LayoutDashboard },
@@ -15,6 +16,7 @@ const NAV = [
 export default function FinanceSidebar() {
   const navigate = useNavigate();
   const { logout } = useAuthStore();
+  const access = useAccess();
   const handleLogout = () => { logout(); navigate('/login'); };
 
   return (
@@ -29,7 +31,7 @@ export default function FinanceSidebar() {
       </div>
 
       <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-        {NAV.map(({ to, label, Icon }) => (
+        {NAV.filter(({ to }) => !['/finance/payroll', '/finance/salary-structure', '/finance/payslips'].includes(to) || (access.can('Payroll — View') && access.moduleEnabled('Payroll'))).map(({ to, label, Icon }) => (
           <NavLink key={to} to={to} style={({ isActive }) => ({
             display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px',
             textDecoration: 'none', fontSize: '13px', fontWeight: 500, position: 'relative',

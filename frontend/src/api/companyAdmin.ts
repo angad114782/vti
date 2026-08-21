@@ -3,10 +3,11 @@ import type { Pagination } from './hr';
 
 export interface CAUser {
   id: string; name: string; email: string; role: string; isActive: boolean; createdAt: string;
+  accountStatus?: 'INVITED' | 'ACTIVE' | 'SUSPENDED'; lastLoginAt?: string | null;
   employee: { employeeId: string; department: string | null; designation: string | null } | null;
 }
 
-export interface CADept { name: string; total: number; active: number; }
+export interface CADept { id: string; name: string; code: string; isActive: boolean; total: number; active: number; }
 
 export interface CAModule {
   id: string; isEnabled: boolean;
@@ -19,7 +20,7 @@ export interface CALog {
 }
 
 export interface CACompany {
-  id: string; name: string; industry: string | null; email: string | null;
+  id: string; companyCode: string; name: string; industry: string | null; email: string | null;
   phone: string | null; address: string | null; status: string; plan: string;
   maxUsers: number; planExpiry: string | null;
   subscription: { plan: string; billingCycle: string; amount: number; endDate: string; startDate?: string } | null;
@@ -70,6 +71,9 @@ export const caApi = {
     const cid = new URLSearchParams(window.location.search).get('companyId');
     return api.get<CADept[]>('/company-admin/departments', { params: cid ? { companyId: cid } : undefined });
   },
+  createDepartment: (d: { name: string; code: string }) => api.post<CADept>('/company-admin/departments', d),
+  updateDepartment: (id: string, d: { name?: string; isActive?: boolean }) => api.patch<CADept>(`/company-admin/departments/${id}`, d),
+  provisionEmployeeAccount: (id: string, d: { email?: string; role?: string }) => api.post(`/company-admin/employees/${id}/account`, d),
   getCompany:     () => {
     const cid = new URLSearchParams(window.location.search).get('companyId');
     return api.get<CACompany>('/company-admin/company', { params: cid ? { companyId: cid } : undefined });

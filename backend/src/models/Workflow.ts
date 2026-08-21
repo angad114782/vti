@@ -13,6 +13,8 @@ const workflowSchema = new Schema({
   steps:         { type: [workflowStepSchema], default: [] },
   autoEscalate:  { type: Boolean, default: false },
   escalateHours: { type: Number, default: 24 },
+  version:       { type: Number, default: 1 },
+  isActive:      { type: Boolean, default: true },
 }, { timestamps: true });
 
 workflowSchema.index({ companyId: 1, type: 1 }, { unique: true });

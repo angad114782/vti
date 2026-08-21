@@ -1,8 +1,12 @@
 /** Escape special regex characters in user-supplied search strings to prevent ReDoS. */
 export function escapeRegex(str: string): RegExp {
-  const escaped = str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const normalized = str.trim().replace(/\s+/g, ' ').slice(0, 100);
+  const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(escaped, "i");
 }
+
+export const normalizeSearchText = (value: unknown): string =>
+  String(value ?? '').trim().replace(/\s+/g, ' ').toLocaleLowerCase();
 
 /** Clamp a pagination limit to [1, max] and default to defaultVal. */
 export function clampLimit(

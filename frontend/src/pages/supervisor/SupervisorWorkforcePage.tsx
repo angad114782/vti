@@ -19,8 +19,8 @@ const avatarColors = [
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
   { bg: '#f0f9ff', color: '#0ea5e9' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'S').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'User').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
 
 
@@ -155,14 +155,14 @@ export default function SupervisorWorkforcePage() {
   const [page,    setPage]    = useState(1);
   const limit = 20;
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
-  const today = new Date();
+  const today = useMemo(() => new Date(), []);
   const todayParams = useMemo(() => ({
     year: String(today.getFullYear()),
     month: String(today.getMonth() + 1),
     limit: '500',
-  }), []);
+  }), [today]);
 
   const workforceParams = useMemo(() => {
     const p: Record<string, string> = { page: String(page), limit: String(limit) };
@@ -190,7 +190,7 @@ export default function SupervisorWorkforcePage() {
       }
     });
     return ids;
-  }, [attData]);
+  }, [attData, today]);
 
   // Use ref to keep a stable reference for the table rows
   const presentIdsRef = useRef<Set<string>>(new Set());

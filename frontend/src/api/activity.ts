@@ -9,7 +9,7 @@ export interface ActivityLog {
   userAgent?: string;
   createdAt: string;
   user?: { id: string; name: string; email: string; role: string };
-  company?: { id: string; name: string };
+  company?: { id: string; name: string; companyCode: string };
 }
 
 export interface ActivityResponse {
@@ -22,5 +22,5 @@ export const activityApi = {
   getAll: (params?: Record<string, string>) =>
     api.get<ActivityResponse>('/activity', { params }),
   getCompanies: () =>
-    api.get<{ id: string; name: string }[]>('/activity/companies'),
+    api.get<{ id: string; name: string; companyCode: string }[]>('/activity/companies'),
 };

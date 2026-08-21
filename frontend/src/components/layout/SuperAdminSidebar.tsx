@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Building2, CreditCard,
-  Activity, Shield, Headphones, Settings, LogOut,
+  Activity, Shield, Headphones, Settings, LogOut, ReceiptIndianRupee,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 
@@ -9,6 +9,7 @@ const navItems = [
   { label: 'Dashboard',       icon: LayoutDashboard, to: '/dashboard' },
   { label: 'Companies',       icon: Building2,        to: '/companies' },
   { label: 'Subscriptions',   icon: CreditCard,       to: '/subscriptions' },
+  { label: 'Payments',        icon: ReceiptIndianRupee, to: '/payments' },
   { label: 'Activity',        icon: Activity,         to: '/activity' },
   { label: 'Modules Control', icon: Shield,           to: '/modules' },
   { label: 'Support',         icon: Headphones,       to: '/support' },

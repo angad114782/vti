@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { Eye, EyeOff, Loader2, CheckCircle2 } from 'lucide-react';
 
@@ -241,6 +241,7 @@ export default function LoginPage() {
                 {isLoading ? <><Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> Signing in...</> : 'Sign In'}
               </button>
             </form>
+            <p style={{ textAlign: 'center', marginTop: 18, fontSize: 13, color: '#64748b' }}>New company? <Link to="/register" style={{ color: '#0d7470', fontWeight: 700 }}>Create an account</Link></p>
           </div>
 
           <p style={{ textAlign: 'center', fontSize: '12px', color: '#94a3b8', marginTop: '20px' }}>

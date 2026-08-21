@@ -14,13 +14,19 @@ import Company from '../models/Company';
 import CompanyModule from '../models/CompanyModule';
 import ActivityLog from '../models/ActivityLog';
 import RolePermission from '../models/RolePermission';
+import RefreshToken from '../models/RefreshToken';
 import { getCached, invalidate, invalidatePrefix } from '../utils/cache';
+import { getCompanyReference } from '../utils/companyReference';
+import Department from '../models/Department';
 
 const resolveCompanyId = (req: AuthRequest): string | undefined => {
   const tokenCompanyId = req.user?.companyId?.toString();
   const queryCompanyId = typeof req.query.companyId === 'string' ? req.query.companyId : undefined;
-  return tokenCompanyId || queryCompanyId;
+  // Tenant users are always bound to the company in their signed token.
+  // Only Super Admin may select a company explicitly for support/administration.
+  return req.user?.role === 'SUPER_ADMIN' ? queryCompanyId : tokenCompanyId;
 };
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
 export const getDashboard = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -38,7 +44,7 @@ export const getDashboard = async (req: AuthRequest, res: Response): Promise<voi
         ]),
         LeaveRequest.countDocuments({ companyId, status: 'Pending' }),
         Expense.countDocuments({ companyId, status: 'Pending' }),
-        Payslip.countDocuments({ companyId, status: 'Paid' }),
+        Payslip.countDocuments({ companyId, status: { $in: ['Finalized', 'Paid'] } }),
         User.find({ companyId }).select('role').lean(),
       ]);
 
@@ -88,12 +94,12 @@ export const getUsers = async (req: AuthRequest, res: Response): Promise<void> =
       if (role && role !== 'ALL') where.role = role;
       if (search) {
         const re = escapeRegex(search);
-        where.$or = [{ name: re }, { email: re }];
+        where.$or = [{ nameSearch: re }, { emailSearch: re }];
       }
 
       const [users, total]: [any[], number] = await Promise.all([
         User.find(where as any)
-          .select('id name email role isActive createdAt')
+          .select('id name email role isActive accountStatus lastLoginAt createdAt')
           .sort({ createdAt: -1 })
           .skip(skip)
           .limit(limit)
@@ -107,7 +113,7 @@ export const getUsers = async (req: AuthRequest, res: Response): Promise<void> =
         .lean();
 
       const empMap: Record<string, { employeeId: string; department?: string; designation?: string }> = {};
-      employees.forEach((e) => { empMap[e.userId.toString()] = { employeeId: e.employeeId, department: e.department ?? undefined, designation: e.designation ?? undefined }; });
+      employees.forEach((e) => { if (e.userId) empMap[e.userId.toString()] = { employeeId: e.employeeId, department: e.department ?? undefined, designation: e.designation ?? undefined }; });
 
       return {
         users: users.map((u: any) => ({
@@ -116,6 +122,8 @@ export const getUsers = async (req: AuthRequest, res: Response): Promise<void> =
           email: u.email,
           role: u.role,
           isActive: u.isActive,
+          accountStatus: u.accountStatus ?? (u.isActive ? 'ACTIVE' : 'SUSPENDED'),
+          lastLoginAt: u.lastLoginAt ?? null,
           createdAt: u.createdAt,
           employee: empMap[u._id.toString()] ?? null,
         })),
@@ -134,9 +142,10 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
   try {
     const companyId = resolveCompanyId(req);
     if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
-    const { name, email, role, password } = req.body as {
+    const { name, role, password } = req.body as {
       name: string; email: string; role: string; password: string;
     };
+    const email = normalizeEmail((req.body as { email: string }).email);
 
     const exists = await User.findOne({ email });
     if (exists) { res.status(409).json({ message: 'Email already in use' }); return; }
@@ -144,7 +153,7 @@ export const createUser = async (req: AuthRequest, res: Response): Promise<void>
     const rawPassword = password || crypto.randomBytes(12).toString('base64url');
     const hashed = await bcrypt.hash(rawPassword, 10);
 
-    const user: any = await User.create({ name, email, password: hashed, role: role as any, companyId, isActive: true });
+    const user: any = await User.create({ name: name.trim(), email, password: hashed, role: role as any, companyId, isActive: true });
 
     invalidatePrefix(`ca:users:${companyId}`);
     invalidate(`ca:dashboard:${companyId}`);
@@ -172,17 +181,15 @@ export const updateUser = async (req: AuthRequest, res: Response): Promise<void>
     const { id } = req.params as { id: string };
     const { role, isActive } = req.body as { role?: string; isActive?: boolean };
 
-    const target = await User.findById(id).lean();
+    const target = await User.findOne({ _id: id, companyId }).lean();
     if (!target) { res.status(404).json({ message: 'User not found' }); return; }
-    if (target.companyId?.toString() !== companyId) {
-      res.status(403).json({ message: 'Forbidden' }); return;
-    }
 
     const update: Record<string, unknown> = {};
-    if (role) update.role = role;
-    if (isActive !== undefined) update.isActive = isActive;
+    if (role) { update.role = role; update.$inc = { sessionVersion: 1 }; }
+    if (isActive !== undefined) { update.isActive = isActive; update.accountStatus = isActive ? 'ACTIVE' : 'SUSPENDED'; update.$inc = { sessionVersion: 1 }; }
 
-    const user = await User.findByIdAndUpdate(id, update, { new: true }).select('id name email role isActive');
+  const user = await User.findOneAndUpdate({ _id: id, companyId }, update, { returnDocument: 'after' }).select('id name email role isActive');
+    if (isActive === false || role) await RefreshToken.deleteMany({ userId: id });
     const changes = role ? `role → ${role}` : `isActive → ${isActive}`;
     invalidatePrefix(`ca:users:${companyId}`);
     invalidate(`ca:dashboard:${companyId}`);
@@ -200,13 +207,11 @@ export const deleteUser = async (req: AuthRequest, res: Response): Promise<void>
     if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
     const { id } = req.params as { id: string };
 
-    const target = await User.findById(id).lean();
+    const target = await User.findOne({ _id: id, companyId }).lean();
     if (!target) { res.status(404).json({ message: 'User not found' }); return; }
-    if (target.companyId?.toString() !== companyId) {
-      res.status(403).json({ message: 'Forbidden' }); return;
-    }
 
-    await User.findByIdAndUpdate(id, { isActive: false });
+    await User.findOneAndUpdate({ _id: id, companyId }, { $set: { isActive: false }, $inc: { sessionVersion: 1 } });
+    await RefreshToken.deleteMany({ userId: id });
     invalidatePrefix(`ca:users:${companyId}`);
     invalidate(`ca:dashboard:${companyId}`);
     logActivity(req as any, `Deactivated user "${target.name}"`, 'Users');
@@ -223,7 +228,8 @@ export const getDepartments = async (req: AuthRequest, res: Response): Promise<v
     if (!companyId) { res.json([]); return; }
 
     const result = await getCached(`ca:departments:${companyId}:detail`, async () => {
-      const [allDepts, activeDepts] = await Promise.all([
+      const [masters, allDepts, activeDepts] = await Promise.all([
+        Department.find({ companyId }).sort({ name: 1 }).lean(),
         Employee.aggregate([
           { $match: { companyId: new mongoose.Types.ObjectId(companyId) } },
           { $group: { _id: '$department', count: { $sum: 1 } } },
@@ -239,13 +245,9 @@ export const getDepartments = async (req: AuthRequest, res: Response): Promise<v
       const activeMap: Record<string, number> = {};
       activeDepts.forEach((d: { _id: string; count: number }) => { activeMap[d._id] = d.count; });
 
-      return allDepts
-        .map((d: { _id: string; count: number }) => ({
-          name: d._id,
-          total: d.count,
-          active: activeMap[d._id] ?? 0,
-        }))
-        .sort((a: { total: number }, b: { total: number }) => b.total - a.total);
+      const countMap: Record<string, number> = {};
+      allDepts.forEach((d: { _id: string; count: number }) => { countMap[d._id] = d.count; });
+      return masters.map((d: any) => ({ id: d._id.toString(), name: d.name, code: d.code, isActive: d.isActive, total: countMap[d.name] ?? 0, active: activeMap[d.name] ?? 0 }));
     }, 900);
 
     res.json(result);
@@ -253,6 +255,53 @@ export const getDepartments = async (req: AuthRequest, res: Response): Promise<v
     console.error(err);
     res.status(500).json({ message: 'Internal server error' });
   }
+};
+
+export const createDepartment = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const companyId = resolveCompanyId(req); if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
+    const name = String(req.body.name ?? '').trim(); const code = String(req.body.code ?? '').trim().toUpperCase();
+    if (!name || !code) { res.status(400).json({ message: 'Department name and code are required' }); return; }
+    const department = await Department.create({ companyId, name, code, isActive: true });
+    invalidatePrefix(`ca:departments:${companyId}`); invalidatePrefix(`hr:employees:${companyId}`); invalidate(`ca:dashboard:${companyId}`);
+    logActivity(req as any, `Created department ${name}`, 'Departments'); res.status(201).json(department);
+  } catch (err: any) { res.status(err?.code === 11000 ? 409 : 500).json({ message: err?.code === 11000 ? 'A department with this name or code already exists' : 'Internal server error' }); }
+};
+
+export const updateDepartment = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const companyId = resolveCompanyId(req); if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
+    const department = await Department.findOne({ _id: req.params.id, companyId });
+    if (!department) { res.status(404).json({ message: 'Department not found' }); return; }
+    const nextName = req.body.name === undefined ? department.name : String(req.body.name).trim();
+    const nextActive = req.body.isActive === undefined ? department.isActive : Boolean(req.body.isActive);
+    const employeeScope = { companyId, $or: [{ departmentId: department._id }, { department: department.name }] };
+    const headcount = await Employee.countDocuments(employeeScope);
+    if (!nextActive && headcount > 0) { res.status(409).json({ message: 'Reassign all employees before deactivating this department', headcount }); return; }
+    if (!nextName) { res.status(400).json({ message: 'Department name is required' }); return; }
+    if (nextName !== department.name) await Employee.updateMany(employeeScope, { $set: { department: nextName, departmentId: department._id } });
+    department.name = nextName; department.isActive = nextActive; await department.save();
+    invalidatePrefix(`ca:departments:${companyId}`); invalidatePrefix(`hr:employees:${companyId}`); invalidate(`ca:dashboard:${companyId}`);
+    logActivity(req as any, `Updated department ${department.name}`, 'Departments'); res.json(department);
+  } catch (err: any) { res.status(err?.code === 11000 ? 409 : 500).json({ message: err?.code === 11000 ? 'Department name already exists' : 'Internal server error' }); }
+};
+
+export const provisionEmployeeAccount = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const companyId = resolveCompanyId(req); if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
+    const employee: any = await Employee.findOne({ _id: req.params.id, companyId });
+    if (!employee) { res.status(404).json({ message: 'Employee not found' }); return; }
+    if (employee.userId) { res.status(409).json({ message: 'This employee already has an account' }); return; }
+    const email = String(req.body.email ?? employee.email ?? '').trim().toLowerCase();
+    if (!email) { res.status(400).json({ message: 'An email is required to provision access' }); return; }
+    if (await User.findOne({ email })) { res.status(409).json({ message: 'Email already belongs to another account' }); return; }
+    const rawPassword = crypto.randomBytes(12).toString('base64url');
+    const user: any = await User.create({ companyId, name: employee.name, email, password: await bcrypt.hash(rawPassword, 10), role: req.body.role || 'EMPLOYEE', accountStatus: 'INVITED', isActive: true });
+    employee.userId = user._id; employee.email = email; await employee.save();
+    invalidatePrefix(`ca:users:${companyId}`); invalidatePrefix(`hr:employees:${companyId}`); invalidate(`ca:dashboard:${companyId}`);
+    logActivity(req as any, `Provisioned account for ${employee.name}`, 'Users');
+    res.status(201).json({ id: user._id.toString(), email, role: user.role, accountStatus: user.accountStatus, generatedPassword: rawPassword });
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }); }
 };
 
 export const getCompany = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -269,6 +318,7 @@ export const getCompany = async (req: AuthRequest, res: Response): Promise<void>
 
     res.json({
       ...company,
+      companyCode: getCompanyReference(company._id, (company as any).companyCode),
       id: company._id.toString(),
       _id: undefined,
       subscription,
@@ -284,8 +334,8 @@ export const updateCompany = async (req: AuthRequest, res: Response): Promise<vo
   try {
     const companyId = resolveCompanyId(req);
     if (!companyId) { res.status(400).json({ message: 'Company context required' }); return; }
-    const { name, industry, email, phone, address } = req.body as {
-      name?: string; industry?: string; email?: string; phone?: string; address?: string;
+    const { name, industry, email, phone, address, timezone } = req.body as {
+      name?: string; industry?: string; email?: string; phone?: string; address?: string; timezone?: string;
     };
 
     const update: Record<string, unknown> = {};
@@ -294,8 +344,9 @@ export const updateCompany = async (req: AuthRequest, res: Response): Promise<vo
     if (email) update.email = email;
     if (phone) update.phone = phone;
     if (address) update.address = address;
+    if (timezone) update.timezone = timezone;
 
-    const company = await Company.findByIdAndUpdate(companyId, update, { new: true });
+    const company = await Company.findByIdAndUpdate(companyId, update, { returnDocument: 'after' });
     logActivity(req as any, `Updated company settings "${(company as any)?.name ?? companyId}"`, 'Settings');
     res.json(company);
   } catch (err) {
@@ -358,9 +409,14 @@ export const getActivity = async (req: AuthRequest, res: Response): Promise<void
   }
 };
 
-export const getRolePermissions = async (_req: AuthRequest, res: Response): Promise<void> => {
+export const getRolePermissions = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const perms = await RolePermission.find().lean();
+    const companyId = resolveCompanyId(req);
+    const scopedCompanyId = companyId ? new mongoose.Types.ObjectId(companyId) : undefined;
+    let perms = scopedCompanyId
+      ? await RolePermission.find({ companyId: scopedCompanyId }).lean()
+      : await RolePermission.find({ companyId: { $exists: false } }).lean();
+    if (companyId && !perms.length) perms = await RolePermission.find({ companyId: { $exists: false } }).lean();
     res.json(perms);
   } catch (err) {
     console.error(err);
@@ -372,11 +428,13 @@ export const updateRolePermissions = async (req: AuthRequest, res: Response): Pr
   try {
     const { role, permissions } = req.body as { role: string; permissions: Record<string, boolean> };
     if (!role || !permissions) { res.status(400).json({ message: 'role and permissions required' }); return; }
+    const companyId = resolveCompanyId(req);
+    const scopedCompanyId = companyId ? new mongoose.Types.ObjectId(companyId) : undefined;
 
     const ops = Object.entries(permissions).map(([module, isGranted]) => ({
       updateOne: {
-        filter: { role, module },
-        update: { $set: { role, module, permission: module, isGranted } },
+        filter: { ...(scopedCompanyId ? { companyId: scopedCompanyId } : { companyId: { $exists: false } }), role, module },
+        update: { $set: { ...(scopedCompanyId ? { companyId: scopedCompanyId } : {}), role, module, permission: module, isGranted } },
         upsert: true,
       },
     }));

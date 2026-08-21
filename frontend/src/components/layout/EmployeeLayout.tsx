@@ -1,15 +1,16 @@
 import { Outlet, Navigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import EmployeeSidebar from './EmployeeSidebar';
-import { Bell, Search } from 'lucide-react';
+import { Bell } from 'lucide-react';
 import { ErrorBoundary } from '../ErrorBoundary';
+import GlobalSearch from '../search/GlobalSearch';
 
 const avatarColors = [
   { bg: '#eef2ff', color: '#6366f1' }, { bg: '#f0fdf4', color: '#10b981' },
   { bg: '#fffbeb', color: '#f59e0b' }, { bg: '#fdf4ff', color: '#ec4899' },
 ];
-const getAv = (name: string) => avatarColors[name.charCodeAt(0) % avatarColors.length]!;
-const initials = (name: string) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const getAv = (name?: string) => avatarColors[(name ?? 'E').charCodeAt(0) % avatarColors.length]!;
+const initials = (name?: string) => (name ?? 'Employee').split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
 
 export default function EmployeeLayout() {
   const { user } = useAuthStore();
@@ -24,11 +25,9 @@ export default function EmployeeLayout() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* TopBar */}
         <div style={{ height: '56px', backgroundColor: 'white', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', padding: '0 24px', gap: '12px', flexShrink: 0 }}>
-          <div style={{ position: 'relative', flex: 1, maxWidth: '320px' }}>
-            <Search size={14} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
-            <input placeholder="Search..." style={{ width: '100%', paddingLeft: '32px', paddingRight: '10px', paddingTop: '6px', paddingBottom: '6px', border: '1.5px solid #e2e8f0', borderRadius: '8px', fontSize: '13px', outline: 'none', fontFamily: 'Inter, sans-serif', color: '#374151', backgroundColor: '#f8fafc' }} />
-          </div>
+          <GlobalSearch />
           <div style={{ flex: 1 }} />
+          <span style={{ fontSize: '12px', fontWeight: 600, color: '#0f172a' }}>{user.role === 'SUPER_ADMIN' ? 'All Companies' : `${user.company?.name ?? 'Company'}${user.company?.companyCode ? ` (${user.company.companyCode})` : ''}`}</span>
           <button style={{ position: 'relative', width: '34px', height: '34px', borderRadius: '8px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <Bell size={15} color="#64748b" />
             <span style={{ position: 'absolute', top: '6px', right: '7px', width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#ef4444' }} />

@@ -8,6 +8,7 @@ export interface JwtPayload {
   email: string;
   role: string;
   companyId?: string;
+  sessionVersion?: number;
 }
 
 export const generateAccessToken = (payload: JwtPayload): string => {

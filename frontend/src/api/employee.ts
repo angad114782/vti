@@ -45,6 +45,7 @@ export const employeeApi = {
   getLeaves:           () => api.get<{ leaves: MyLeave[]; stats: Record<string, number>; balance: LeaveBalance[] }>('/employee/leaves'),
   applyLeave:    (data: { leaveType: string; startDate: string; endDate: string; reason: string }) => api.post('/employee/leaves', data),
   getPayslips:   () => api.get<MyPayslip[]>('/employee/payslips'),
+  downloadPayslip: (id: string) => api.get<Blob>(`/employee/payslips/${id}/download`, { responseType: 'blob' }),
   getExpenses:   () => api.get<{ expenses: MyExpense[]; stats: { pending: number; approved: number; total: number } }>('/employee/expenses'),
   uploadReceiptFile: (file: File) => {
     const fd = new FormData();
@@ -55,5 +56,6 @@ export const employeeApi = {
   },
   submitExpense: (data: { category: string; amount: number; description: string; receiptUrl?: string }) => api.post('/employee/expenses', data),
   getDocuments:  (p?: Record<string, string>) => api.get<{ documents: MyDocument[]; pagination: Pagination }>('/employee/documents', { params: p }),
+  downloadDocument: (fileUrl: string) => api.get<Blob>(fileUrl.replace(/^\/api/, ''), { responseType: 'blob' }),
   updateProfile: (data: { name?: string; email?: string }) => api.patch<{ name: string; email: string }>('/employee/profile', data),
 };

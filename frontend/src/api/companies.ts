@@ -2,13 +2,14 @@ import api from './axios';
 
 export interface Company {
   id: string;
+  companyCode: string;
   name: string;
   industry?: string;
   email?: string;
   phone?: string;
   address?: string;
   plan: string;
-  status: 'ACTIVE' | 'TRIAL' | 'EXPIRED' | 'SUSPENDED';
+  status: 'ACTIVE' | 'TRIAL' | 'GRACE_PERIOD' | 'EXPIRED' | 'SUSPENDED';
   maxUsers: number;
   userCount: number;
   planExpiry?: string;
@@ -34,6 +35,10 @@ export interface CreateCompanyData {
   adminName?: string;
   adminEmail?: string;
   adminPassword?: string;
+  paymentStatus?: 'PENDING' | 'PAID';
+  paymentReference?: string;
+  paymentNotes?: string;
+  paymentDate?: string;
 }
 
 export interface CreateCompanyResponse extends Company {

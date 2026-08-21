@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { type MyDocument } from '../../api/employee';
+import { employeeApi, type MyDocument } from '../../api/employee';
 import type { Pagination } from '../../api/hr';
 import { Loader2, FileText, Download, Eye, Search } from 'lucide-react';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
@@ -24,7 +24,7 @@ export default function DocumentsPage() {
   const [catFilter, setCatFilter] = useState('All');
   const [page,      setPage]      = useState(1);
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const docParams: Record<string, string> = { page: String(page), limit: String(LIMIT) };
   if (debouncedSearch) docParams.search = debouncedSearch;
@@ -36,6 +36,17 @@ export default function DocumentsPage() {
 
   const handleSearchChange = (v: string) => { setSearch(v); setPage(1); };
   const handleCatChange    = (v: string) => { setCatFilter(v); setPage(1); };
+  const openDocument = async (doc: MyDocument, download = false) => {
+    if (!doc.fileUrl) return;
+    const { data } = await employeeApi.downloadDocument(doc.fileUrl);
+    const url = URL.createObjectURL(data);
+    if (download) {
+      const anchor = document.createElement('a'); anchor.href = url; anchor.download = doc.name; anchor.click();
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
 
   const CATS = ['All', 'Policy', 'HR', 'Finance', 'General', 'Offer', 'Compliance'];
 
@@ -90,8 +101,8 @@ export default function DocumentsPage() {
                       {d.fileSize && <p style={{ fontSize: '10px', color: '#94a3b8', marginTop: '1px' }}>{d.fileSize}</p>}
                     </div>
                     <div style={{ display: 'flex', gap: '6px' }}>
-                      <button onClick={() => d.fileUrl ? window.open(d.fileUrl, '_blank') : alert(`${d.name}\nCategory: ${d.category}`)} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b' }}><Eye size={12} /></button>
-                      <button onClick={() => d.fileUrl && window.open(d.fileUrl, '_blank')} disabled={!d.fileUrl} title={d.fileUrl ? 'Download document' : 'No file available'} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: d.fileUrl ? '#0d7470' : '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: d.fileUrl ? 'pointer' : 'not-allowed', opacity: d.fileUrl ? 1 : 0.5 }}><Download size={12} color={d.fileUrl ? 'white' : '#94a3b8'} /></button>
+                      <button onClick={() => void openDocument(d)} disabled={!d.fileUrl} title={d.fileUrl ? 'View document' : 'No file available'} style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid #e2e8f0', backgroundColor: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: d.fileUrl ? 'pointer' : 'not-allowed', color: '#64748b', opacity: d.fileUrl ? 1 : 0.5 }}><Eye size={12} /></button>
+                      <button onClick={() => void openDocument(d, true)} disabled={!d.fileUrl} title={d.fileUrl ? 'Download document' : 'No file available'} style={{ width: '28px', height: '28px', borderRadius: '6px', border: 'none', backgroundColor: d.fileUrl ? '#0d7470' : '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: d.fileUrl ? 'pointer' : 'not-allowed', opacity: d.fileUrl ? 1 : 0.5 }}><Download size={12} color={d.fileUrl ? 'white' : '#94a3b8'} /></button>
                     </div>
                   </div>
                 </div>

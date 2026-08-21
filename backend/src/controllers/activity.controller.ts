@@ -3,6 +3,7 @@ import ActivityLog from '../models/ActivityLog';
 import Company from '../models/Company';
 import User from '../models/User';
 import { escapeRegex, clampLimit } from '../utils/query';
+import { getCompanyReference } from '../utils/companyReference';
 
 export const getActivityLogs = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -35,7 +36,7 @@ export const getActivityLogs = async (req: Request, res: Response): Promise<void
       const re = escapeRegex(search);
       const [users, companies] = await Promise.all([
         User.find({ name: re }).select('_id').lean(),
-        Company.find({ name: re }).select('_id').lean(),
+        Company.find({ $or: [{ name: re }, { companyCode: re }] }).select('_id').lean(),
       ]);
       where.$or = [
         { userId: { $in: users.map((u) => u._id) } },
@@ -49,7 +50,7 @@ export const getActivityLogs = async (req: Request, res: Response): Promise<void
         .limit(limit)
         .sort({ createdAt: -1 })
         .populate('userId', 'id name email role')
-        .populate('companyId', 'id name'),
+        .populate('companyId', 'id name companyCode'),
       ActivityLog.countDocuments(where),
     ]);
 
@@ -82,6 +83,7 @@ export const getActivityLogs = async (req: Request, res: Response): Promise<void
         company: obj.companyId ? {
           id: obj.companyId._id?.toString() ?? obj.companyId.id,
           name: obj.companyId.name,
+          companyCode: getCompanyReference(obj.companyId._id ?? obj.companyId.id, obj.companyId.companyCode),
         } : null,
       };
     });
@@ -99,8 +101,8 @@ export const getActivityLogs = async (req: Request, res: Response): Promise<void
 
 export const getCompaniesFilter = async (_req: Request, res: Response): Promise<void> => {
   try {
-    const companies = await Company.find({ isDeleted: { $ne: true } }).select('id name').sort({ name: 1 });
-    res.json(companies);
+    const companies = await Company.find({ isDeleted: { $ne: true } }).select('id name companyCode').sort({ name: 1 });
+    res.json(companies.map((company: any) => ({ id: company._id.toString(), name: company.name, companyCode: getCompanyReference(company._id, company.companyCode) })));
   } catch {
     res.status(500).json({ message: 'Internal server error' });
   }

@@ -11,6 +11,13 @@ const approvalSchema = new Schema({
   workflowType: { type: String, default: 'correction' },
   workflowStep: { type: Number, default: 1 },
   pendingRole: { type: String, default: 'SUPERVISOR' },
+  version: { type: Number, default: 0 },
+  requesterUserId: { type: Schema.Types.ObjectId, ref: 'User' },
+  workflowVersion: { type: Number, default: 1 },
+  workflowSnapshot: { type: Schema.Types.Mixed },
+  approvalDueAt: Date,
+  delegatedTo: { type: Schema.Types.ObjectId, ref: 'User' },
+  escalatedAt: Date,
 }, { timestamps: true });
 
 approvalSchema.index({ companyId: 1, createdAt: -1 });

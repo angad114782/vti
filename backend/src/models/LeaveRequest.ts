@@ -7,17 +7,29 @@ const leaveRequestSchema = new Schema({
   startDate: { type: Date, required: true },
   endDate: { type: Date, required: true },
   days: { type: Number, required: true },
+  isHalfDay: { type: Boolean, default: false },
   reason: String,
-  status: { type: String, default: 'Pending' },
+  status: { type: String, enum: ['Pending', 'Approved', 'Rejected', 'Cancelled'], default: 'Pending' },
+  version: { type: Number, default: 0 },
+  approvedAt: Date,
+  rejectedAt: Date,
+  cancelledAt: Date,
   workflowType: { type: String, default: 'leave' },
   workflowStep: { type: Number, default: 1 },
   pendingRole: { type: String, default: 'SUPERVISOR' },
+  requesterUserId: { type: Schema.Types.ObjectId, ref: 'User' },
+  workflowVersion: { type: Number, default: 1 },
+  workflowSnapshot: { type: Schema.Types.Mixed },
+  approvalDueAt: Date,
+  delegatedTo: { type: Schema.Types.ObjectId, ref: 'User' },
+  escalatedAt: Date,
 }, { timestamps: true });
 
 leaveRequestSchema.index({ companyId: 1, createdAt: -1 });
 leaveRequestSchema.index({ companyId: 1, status: 1 });
 leaveRequestSchema.index({ employeeId: 1, createdAt: -1 });
 leaveRequestSchema.index({ employeeId: 1, status: 1, startDate: 1 });
+leaveRequestSchema.index({ companyId: 1, employeeId: 1, startDate: 1, endDate: 1 });
 
 leaveRequestSchema.set('toJSON', {
   virtuals: true,

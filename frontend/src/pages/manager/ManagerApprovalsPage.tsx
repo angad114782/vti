@@ -55,7 +55,7 @@ export default function ManagerApprovalsPage() {
   const [page,     setPage]     = useState(1);
   const [limit]                 = useState(20);
 
-  const debouncedSearch = useDebouncedValue(search, 300);
+  const debouncedSearch = useDebouncedValue(search, 500);
 
   const params: Record<string, string> = { page: String(page), limit: String(limit) };
   if (debouncedSearch) params.search = debouncedSearch;

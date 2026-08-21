@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, CalendarCheck, Plane, FileText, Receipt, FolderOpen, Settings, LogOut } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
+import { useAccess } from '../../hooks/queries/useAccess';
 
 const NAV = [
   { to: '/employee/dashboard',   label: 'Dashboard',   Icon: LayoutDashboard },
@@ -15,6 +16,7 @@ const NAV = [
 export default function EmployeeSidebar() {
   const navigate  = useNavigate();
   const { logout } = useAuthStore();
+  const access = useAccess();
   const handleLogout = () => { logout(); navigate('/login'); };
 
   return (
@@ -29,7 +31,10 @@ export default function EmployeeSidebar() {
       </div>
 
       <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-        {NAV.map(({ to, label, Icon }) => (
+        {NAV.filter(({ to }) => {
+          const module = to.includes('attendance') ? 'Attendance' : to.includes('leaves') ? 'Leave Management' : to.includes('payslips') ? 'Payroll' : to.includes('expenses') ? 'Expense Management' : to.includes('documents') ? 'Document Management' : undefined;
+          return !module || access.moduleEnabled(module);
+        }).map(({ to, label, Icon }) => (
           <NavLink key={to} to={to} style={({ isActive }) => ({
             display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', borderRadius: '8px',
             textDecoration: 'none', fontSize: '13px', fontWeight: 500, position: 'relative',
